@@ -1,0 +1,31 @@
+[package]
+name = "rs-stack"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A CLI tool for managing stacked PRs with GitHub"
+license = "MIT"
+repository = "https://github.com/rohoswagger/rs-stack"
+homepage = "https://github.com/rohoswagger/rs-stack"
+keywords = ["git", "github", "stacked-prs", "cli", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
+
+[[bin]]
+name = "rs"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+owo-colors = { version = "4", features = ["supports-colors"] }
+console = "0.15"
+indicatif = "0.17"
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dialoguer = "0.11"
+
+[profile.release]
+lto = true
+strip = true
