@@ -45,8 +45,8 @@ pub fn create_pr(title: &str, body: &str, base: &str, head: &str, draft: bool) -
     let number = url
         .rsplit('/')
         .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| anyhow::anyhow!("could not parse PR number from URL: {url}"))?;
 
     Ok(PrInfo {
         number,
@@ -114,7 +114,7 @@ pub fn edit_pr(pr_number: u64, title: Option<&str>, body: Option<&str>) -> Resul
         args.extend_from_slice(&["--body", b]);
     }
     if args.len() == 3 {
-        anyhow::bail!("No edits specified — provide --title or --body");
+        anyhow::bail!("No edits specified — provide --title, --body, or --body-file");
     }
     run_gh(&args)?;
     Ok(())

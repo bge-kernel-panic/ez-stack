@@ -91,7 +91,7 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | `ez push --title "..." --body "..."` | Push and set PR title/body on creation |
 | `ez push --base <branch>` | Push and override the PR base branch |
 | `ez submit` | Push **all branches** in the stack and create/update all PRs |
-| `ez pr edit --title "..." --body "..."` | Edit the PR for the current branch |
+| `ez pr-edit --title "..." --body "..."` | Edit the PR for the current branch |
 | `ez merge` | Merge the bottom PR of the stack via GitHub |
 
 ### Inspection

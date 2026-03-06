@@ -31,7 +31,7 @@ pub enum Commands {
         message: Option<String>,
 
         /// Stage all tracked changes before committing (requires -m)
-        #[arg(short = 'a', long)]
+        #[arg(short = 'a', long, requires = "message")]
         all: bool,
     },
 

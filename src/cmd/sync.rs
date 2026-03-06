@@ -6,6 +6,43 @@ use crate::stack::StackState;
 use crate::ui;
 
 pub fn run(dry_run: bool) -> Result<()> {
+    let state = StackState::load()?;
+
+    if dry_run {
+        ui::header("Sync preview (--dry-run, no changes will be made)");
+        ui::info(&format!("Would fetch from `{}`", state.remote));
+        ui::info(&format!("Would fast-forward `{}` to latest remote", state.trunk));
+
+        let managed_branches: Vec<String> = state.branches.keys().cloned().collect();
+        for branch_name in &managed_branches {
+            let meta = state.get_branch(branch_name)?;
+            if meta.pr_number.is_some() {
+                ui::info(&format!("Would check if PR for `{branch_name}` is merged"));
+            }
+        }
+
+        let order = state.topo_order();
+        let mut any_restack = false;
+        for branch_name in &order {
+            let meta = state.get_branch(branch_name)?;
+            let parent = &meta.parent;
+            let stored_head = &meta.parent_head;
+            if let Ok(current_tip) = git::rev_parse(parent) {
+                if current_tip != *stored_head {
+                    ui::info(&format!("Would restack `{branch_name}` onto `{parent}`"));
+                    any_restack = true;
+                }
+            }
+        }
+
+        if !any_restack {
+            ui::info("No restacking needed based on current local state");
+        }
+
+        ui::hint("Run `ez sync` (without --dry-run) to apply these changes");
+        return Ok(());
+    }
+
     let mut state = StackState::load()?;
     let original_branch = git::current_branch()?;
 
@@ -22,28 +59,6 @@ pub fn run(dry_run: bool) -> Result<()> {
         ui::warn("Could not fast-forward trunk — you may have local commits");
     } else {
         ui::success(&format!("Updated `{}` to latest", state.trunk));
-    }
-
-    if dry_run {
-        ui::info("[dry-run] Would fast-forward trunk to latest remote");
-
-        let order = state.topo_order();
-        for branch_name in &order {
-            let meta = state.get_branch(branch_name)?;
-            if meta.pr_number.is_some() {
-                ui::info(&format!("[dry-run] Would check PR status for `{branch_name}`"));
-            }
-            let parent = &meta.parent;
-            let stored_head = &meta.parent_head;
-            if let Ok(current_tip) = git::rev_parse(parent) {
-                if current_tip != *stored_head {
-                    ui::info(&format!("[dry-run] Would restack `{branch_name}` onto `{parent}`"));
-                }
-            }
-        }
-
-        ui::info("[dry-run] No changes made — rerun without --dry-run to apply");
-        return Ok(());
     }
 
     // Detect merged PRs and clean up.

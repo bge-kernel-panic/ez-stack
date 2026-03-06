@@ -71,6 +71,18 @@ pub fn push_or_update_pr(
             github::update_pr_base(pr.number, parent)?;
             state.get_branch_mut(branch)?.pr_number = Some(pr.number);
             ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
+
+            // Apply title/body overrides if provided.
+            if title_override.is_some() || body_override.is_some() {
+                github::edit_pr(pr.number, title_override, body_override)?;
+                if title_override.is_some() {
+                    ui::info(&format!("Updated PR #{} title", pr.number));
+                }
+                if body_override.is_some() {
+                    ui::info(&format!("Updated PR #{} body", pr.number));
+                }
+            }
+
             pr.url
         }
         None => {
