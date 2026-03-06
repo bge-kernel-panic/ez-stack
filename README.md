@@ -44,8 +44,7 @@ ez create feat/use-config
 # ... make changes ...
 ez commit -m "wire config into app"
 
-# Push and open PRs for the whole stack
-ez push
+# Push the entire stack and open PRs for all branches
 ez submit
 ```
 
@@ -58,19 +57,21 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | Command | Description |
 |---------|-------------|
 | `ez init` | Initialize `ez` in the current repository |
-| `ez create <name>` | Create a new branch on top of the current stack |
-| `ez commit [-m <msg>]` | Commit staged changes to the current branch |
-| `ez amend` | Amend the last commit on the current branch |
+| `ez create <name>` | Create a new branch stacked on the current branch |
+| `ez create <name> -m "msg"` | Create branch and commit staged changes in one step |
+| `ez create <name> -am "msg"` | Create branch, stage all tracked changes, and commit |
+| `ez commit -m <msg>` | Commit staged changes and restack children |
+| `ez amend` | Amend the last commit and restack children |
 | `ez delete [<name>]` | Delete a branch from the stack and restack |
-| `ez move <--up\|--down>` | Reorder the current branch within the stack |
+| `ez move --onto <branch>` | Reparent the current branch onto another branch |
 
 ### Syncing & rebasing
 
 | Command | Description |
 |---------|-------------|
-| `ez sync` | Fetch `main`, rebase the entire stack, clean up merged branches |
-| `ez restack` | Rebase each branch in the stack onto its parent |
-| `ez push` | Force-push all branches in the stack to the remote |
+| `ez sync` | Fetch trunk, detect merged PRs, clean up, and restack |
+| `ez sync --dry-run` | Preview what sync would do without making changes |
+| `ez restack` | Rebase each branch onto its parent |
 
 ### Navigation
 
@@ -80,14 +81,18 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | `ez down` | Check out the branch below the current one |
 | `ez top` | Check out the top of the stack |
 | `ez bottom` | Check out the bottom of the stack |
-| `ez checkout <name>` | Check out any branch in the stack by name |
+| `ez checkout` | Interactively select a branch to check out |
 
 ### GitHub integration
 
 | Command | Description |
 |---------|-------------|
-| `ez submit` | Create or update GitHub PRs for all branches in the stack |
-| `ez merge` | Merge the bottom PR and restack |
+| `ez push` | Push **current branch only** and create/update its PR |
+| `ez push --title "..." --body "..."` | Push and set PR title/body on creation |
+| `ez push --base <branch>` | Push and override the PR base branch |
+| `ez submit` | Push **all branches** in the stack and create/update all PRs |
+| `ez pr edit --title "..." --body "..."` | Edit the PR for the current branch |
+| `ez merge` | Merge the bottom PR of the stack via GitHub |
 
 ### Inspection
 
@@ -95,6 +100,16 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 |---------|-------------|
 | `ez log` | Show the full stack with branch names, commit counts, and PR status |
 | `ez status` | Show the current branch and its position in the stack |
+
+### `ez push` vs `ez submit`
+
+| | `ez push` | `ez submit` |
+|--|-----------|-------------|
+| **Scope** | Current branch only | All branches from trunk to current |
+| **PRs** | Creates/updates PR for current branch | Creates/updates PRs for all branches |
+| **When to use** | Iterating on a single branch | First push of a stack, or after restacking all branches |
+
+> **Note:** Running `gh pr create` after `ez push` will fail — `ez push` already created the PR.
 
 ## Example workflow
 
@@ -136,7 +151,6 @@ ez log
 #   │   │   ├── feat/auth-middleware (1 commit)  ← you are here
 
 # 6. Push everything and open PRs
-ez push
 ez submit
 # Creates 3 PRs:
 #   feat/auth-types        → main
@@ -149,6 +163,23 @@ ez sync
 # rebases auth-api onto main, rebases auth-middleware onto auth-api,
 # deletes the merged feat/auth-types branch,
 # and updates PR base branches on GitHub.
+```
+
+### `ez create` with a commit message
+
+`ez create` accepts `-m` to commit staged changes in one step:
+
+```bash
+git add src/auth.rs
+ez create feat/auth -m "add auth module"
+# equivalent to: ez create feat/auth && ez commit -m "add auth module"
+```
+
+Use `-a` to stage all tracked changes automatically (like `git commit -a`):
+
+```bash
+ez create feat/auth -am "add auth module"
+# equivalent to: git add -A && ez create feat/auth -m "add auth module"
 ```
 
 ## How it works
