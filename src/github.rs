@@ -28,8 +28,7 @@ pub struct PrInfo {
 }
 
 pub fn body_from_file(path: &str) -> Result<String> {
-    std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read body file `{path}`"))
+    std::fs::read_to_string(path).with_context(|| format!("failed to read body file `{path}`"))
 }
 
 pub fn create_pr(title: &str, body: &str, base: &str, head: &str, draft: bool) -> Result<PrInfo> {

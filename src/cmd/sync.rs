@@ -11,7 +11,10 @@ pub fn run(dry_run: bool) -> Result<()> {
     if dry_run {
         ui::header("Sync preview (--dry-run, no changes will be made)");
         ui::info(&format!("Would fetch from `{}`", state.remote));
-        ui::info(&format!("Would fast-forward `{}` to latest remote", state.trunk));
+        ui::info(&format!(
+            "Would fast-forward `{}` to latest remote",
+            state.trunk
+        ));
 
         let managed_branches: Vec<String> = state.branches.keys().cloned().collect();
         for branch_name in &managed_branches {

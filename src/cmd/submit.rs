@@ -7,7 +7,12 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(draft: bool, title: Option<&str>, body: Option<&str>, body_file: Option<&str>) -> Result<()> {
+pub fn run(
+    draft: bool,
+    title: Option<&str>,
+    body: Option<&str>,
+    body_file: Option<&str>,
+) -> Result<()> {
     let mut state = StackState::load()?;
     let current = git::current_branch()?;
 
@@ -52,7 +57,14 @@ pub fn run(draft: bool, title: Option<&str>, body: Option<&str>, body_file: Opti
         sp.finish_and_clear();
 
         // Create or update the PR.
-        let pr_url = push_or_update_pr(&mut state, branch, &parent, draft, title, resolved_body.as_deref())?;
+        let pr_url = push_or_update_pr(
+            &mut state,
+            branch,
+            &parent,
+            draft,
+            title,
+            resolved_body.as_deref(),
+        )?;
         pr_urls.push((branch.clone(), pr_url));
     }
 

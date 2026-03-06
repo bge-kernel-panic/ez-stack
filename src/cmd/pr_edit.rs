@@ -20,9 +20,7 @@ pub fn run(title: Option<&str>, body: Option<&str>, body_file: Option<&str>) -> 
 
     let meta = state.get_branch(&current)?;
     let pr_number = meta.pr_number.ok_or_else(|| {
-        anyhow::anyhow!(
-            "No PR found for branch `{current}` — run `ez push` to create one first"
-        )
+        anyhow::anyhow!("No PR found for branch `{current}` — run `ez push` to create one first")
     })?;
 
     let resolved_body: Option<String> = if let Some(path) = body_file {

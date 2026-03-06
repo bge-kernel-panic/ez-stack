@@ -45,7 +45,14 @@ pub fn run(
     ui::info(&format!("Pushed `{current}`"));
 
     // Create or update the PR.
-    let pr_url = push_or_update_pr(&mut state, &current, &parent, draft, title, resolved_body.as_deref())?;
+    let pr_url = push_or_update_pr(
+        &mut state,
+        &current,
+        &parent,
+        draft,
+        title,
+        resolved_body.as_deref(),
+    )?;
 
     state.save()?;
     ui::success(&format!("PR: {pr_url}"));
