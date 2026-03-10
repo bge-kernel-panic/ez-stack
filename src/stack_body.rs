@@ -11,14 +11,11 @@ pub struct AncestorPr {
 pub fn build_stack_section(ancestors: &[AncestorPr]) -> Option<String> {
     let linked: Vec<String> = ancestors
         .iter()
-        .filter(|a| a.pr_number.is_some())
+        .filter_map(|a| a.pr_number.map(|num| (a, num)))
         .enumerate()
-        .map(|(i, a)| {
-            let num = a.pr_number.unwrap();
-            match &a.pr_url {
-                Some(url) => format!("{}. [{} #{}]({})", i + 1, a.branch, num, url),
-                None => format!("{}. {} #{}", i + 1, a.branch, num),
-            }
+        .map(|(i, (a, num))| match &a.pr_url {
+            Some(url) => format!("{}. [{} #{}]({})", i + 1, a.branch, num, url),
+            None => format!("{}. {} #{}", i + 1, a.branch, num),
         })
         .collect();
 
