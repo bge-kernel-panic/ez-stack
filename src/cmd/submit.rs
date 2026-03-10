@@ -45,6 +45,7 @@ pub fn run(
     }
 
     let remote = state.remote.clone();
+    let body_explicitly_set = body.is_some() || body_file.is_some();
     let mut pr_urls: Vec<(String, String)> = Vec::new();
 
     for branch in &branches_to_submit {
@@ -64,6 +65,7 @@ pub fn run(
             draft,
             title,
             resolved_body.as_deref(),
+            body_explicitly_set,
         )?;
         pr_urls.push((branch.clone(), pr_url));
     }

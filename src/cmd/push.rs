@@ -44,6 +44,8 @@ pub fn run(
     sp.finish_and_clear();
     ui::info(&format!("Pushed `{current}`"));
 
+    let body_explicitly_set = body.is_some() || body_file.is_some();
+
     // Create or update the PR.
     let pr_url = push_or_update_pr(
         &mut state,
@@ -52,6 +54,7 @@ pub fn run(
         draft,
         title,
         resolved_body.as_deref(),
+        body_explicitly_set,
     )?;
 
     state.save()?;
@@ -69,7 +72,41 @@ pub fn push_or_update_pr(
     draft: bool,
     title_override: Option<&str>,
     body_override: Option<&str>,
+    body_explicitly_set: bool,
 ) -> Result<String> {
+    // Collect upstream ancestor PRs for the stack section.
+    // path_to_trunk returns [branch, ..., trunk]; we want ancestors only.
+    let ancestors: Vec<crate::stack_body::AncestorPr> = {
+        let path = state.path_to_trunk(branch);
+        // path[0] = branch, path[last] = trunk
+        // Slice [1..len-1] gives ancestors (drop current branch and trunk)
+        let repo = github::repo_name().unwrap_or_default();
+        let len = path.len();
+        if len < 2 {
+            vec![]
+        } else {
+            path[1..len - 1]
+                .iter()
+                .rev() // trunk-closest first
+                .map(|b| {
+                    let pr_number = state.branches.get(b).and_then(|m| m.pr_number);
+                    let pr_url = pr_number.map(|n| {
+                        if repo.is_empty() {
+                            String::new()
+                        } else {
+                            format!("https://github.com/{}/pull/{}", repo, n)
+                        }
+                    });
+                    crate::stack_body::AncestorPr {
+                        branch: b.clone(),
+                        pr_number,
+                        pr_url,
+                    }
+                })
+                .collect()
+        }
+    };
+
     let existing_pr = github::get_pr_status(branch)?;
 
     let pr_url = match existing_pr {
@@ -79,15 +116,19 @@ pub fn push_or_update_pr(
             state.get_branch_mut(branch)?.pr_number = Some(pr.number);
             ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
 
-            // Apply title/body overrides if provided.
-            if title_override.is_some() || body_override.is_some() {
-                github::edit_pr(pr.number, title_override, body_override)?;
+            // Only update body if user explicitly passed --body/--body-file.
+            if body_explicitly_set {
+                let raw_body = body_override.unwrap_or("Part of a stack managed by `ez`.");
+                let body = crate::stack_body::build_stack_body(&ancestors, raw_body);
+                github::edit_pr(pr.number, title_override, Some(&body))?;
                 if title_override.is_some() {
                     ui::info(&format!("Updated PR #{} title", pr.number));
                 }
-                if body_override.is_some() {
-                    ui::info(&format!("Updated PR #{} body", pr.number));
-                }
+                ui::info(&format!("Updated PR #{} body", pr.number));
+            } else if title_override.is_some() {
+                // Title only, no body change.
+                github::edit_pr(pr.number, title_override, None)?;
+                ui::info(&format!("Updated PR #{} title", pr.number));
             }
 
             pr.url
@@ -103,9 +144,12 @@ pub fn push_or_update_pr(
 
             let title = title_override.unwrap_or(&derived_title);
             let default_body = "Part of a stack managed by `ez`.";
-            let body = body_override.unwrap_or(default_body);
+            let raw_body = body_override.unwrap_or(default_body);
 
-            let pr = github::create_pr(title, body, parent, branch, draft)?;
+            // Always append stack section to new PRs.
+            let body = crate::stack_body::build_stack_body(&ancestors, raw_body);
+
+            let pr = github::create_pr(title, &body, parent, branch, draft)?;
             state.get_branch_mut(branch)?.pr_number = Some(pr.number);
             ui::info(&format!("Created PR #{}: {}", pr.number, pr.url));
             pr.url
