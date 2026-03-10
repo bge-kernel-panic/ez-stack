@@ -6,6 +6,8 @@ mod git;
 #[allow(dead_code)]
 mod github;
 mod stack;
+#[allow(dead_code)]
+mod stack_body;
 mod ui;
 
 use anyhow::Result;
