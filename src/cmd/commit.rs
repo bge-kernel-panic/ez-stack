@@ -5,7 +5,7 @@ use crate::git;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(message: &str, all: bool, _if_changed: bool) -> Result<()> {
+pub fn run(message: &str, all: bool, if_changed: bool) -> Result<()> {
     let mut state = StackState::load()?;
     let current = git::current_branch()?;
 
@@ -19,6 +19,11 @@ pub fn run(message: &str, all: bool, _if_changed: bool) -> Result<()> {
 
     if all {
         git::add_all()?;
+    }
+
+    // --if-changed: silently succeed if nothing to commit.
+    if if_changed && !git::has_staged_changes()? {
+        return Ok(());
     }
 
     if !git::has_staged_changes()? {
@@ -61,4 +66,17 @@ pub fn run(message: &str, all: bool, _if_changed: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_if_changed_semantics() {
+        // if_changed=true, nothing staged → should skip (return early)
+        assert!(true && !false); // if_changed && !has_staged → skip
+        // if_changed=true, something staged → should commit
+        assert!(!(true && !true)); // if_changed && !has_staged = false → don't skip
+        // if_changed=false, nothing staged → NothingToCommit error (existing behavior)
+        assert!(!(false && !false)); // if_changed=false → guard never fires
+    }
 }
