@@ -33,8 +33,7 @@ impl StackState {
     }
 
     pub fn meta_dir() -> Result<PathBuf> {
-        let root = git::repo_root()?;
-        Ok(PathBuf::from(root).join(".git").join("ez"))
+        Ok(git::git_common_dir()?.join("ez"))
     }
 
     pub fn state_path() -> Result<PathBuf> {
@@ -188,5 +187,28 @@ impl StackState {
             }
             current = next;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_meta_dir_ends_with_ez() {
+        // The test suite runs inside the ez-stack git repo, so meta_dir() will
+        // resolve against the real .git directory. We verify the path ends with "ez".
+        let path = StackState::meta_dir().expect("meta_dir() should succeed in git repo");
+        assert_eq!(
+            path.file_name().and_then(|n| n.to_str()),
+            Some("ez"),
+            "meta_dir() must end with 'ez', got: {path:?}"
+        );
+        // The parent must be the .git directory (not a worktree-specific path).
+        let parent = path.parent().expect("must have a parent");
+        assert!(
+            parent.ends_with(".git"),
+            "meta_dir() parent must be .git, got: {parent:?}"
+        );
     }
 }
