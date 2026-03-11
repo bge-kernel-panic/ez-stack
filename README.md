@@ -50,6 +50,43 @@ ez submit
 
 That's it. Two PRs, correctly chained, with GitHub base branches set automatically.
 
+## Using ez with AI Agents
+
+`ez` is designed to work well in automated and agentic contexts:
+
+- **JSON output** — `ez status --json` and `ez log --json` emit machine-readable data that agents can parse without screen-scraping.
+- **Non-interactive flags** — `ez checkout <name>` or `ez checkout 42` bypasses the TUI picker. `ez commit --if-changed` exits cleanly when there's nothing to commit.
+- **Autostash** — `ez sync --autostash` eliminates the `git stash && ... && git stash pop` dance.
+- **Structured exit codes** — each failure mode has a distinct exit code (rebase conflict = 3, stale remote = 4, usage error = 5, unstaged changes = 6) so agents can take the right recovery action.
+
+### Quick install check
+
+```bash
+cargo install ez-stack && ez --version
+```
+
+### Key agent patterns
+
+```bash
+# Parse current branch state
+ez status --json
+# → {"branch":"feat/x","parent":"main","pr_number":42,"children":[],"needs_restack":false,...}
+
+# Only commit if there are staged changes
+ez commit -m "chore: format" --if-changed
+
+# Sync without a manual stash dance
+ez sync --autostash
+
+# Get just the PR URL for scripting
+open $(ez pr-link)
+
+# Find branches that need restacking
+ez log --json | jq '.[] | select(.needs_restack)'
+```
+
+For Claude Code users, load `SKILL.md` via the Skill tool for a complete command reference and agent-specific usage patterns.
+
 ## Commands
 
 ### Stack creation & editing
@@ -60,7 +97,9 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | `ez create <name>` | Create a new branch stacked on the current branch |
 | `ez create <name> -m "msg"` | Create branch and commit staged changes in one step |
 | `ez create <name> -am "msg"` | Create branch, stage all tracked changes, and commit |
+| `ez create <name> --from <base>` | Create branch from a specific base without checking it out first |
 | `ez commit -m <msg>` | Commit staged changes and restack children |
+| `ez commit -m <msg> --if-changed` | Commit only if there are staged changes (no-op otherwise) |
 | `ez amend` | Amend the last commit and restack children |
 | `ez delete [<name>]` | Delete a branch from the stack and restack |
 | `ez move --onto <branch>` | Reparent the current branch onto another branch |
@@ -71,6 +110,7 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 |---------|-------------|
 | `ez sync` | Fetch trunk, detect merged PRs, clean up, and restack |
 | `ez sync --dry-run` | Preview what sync would do without making changes |
+| `ez sync --autostash` | Stash uncommitted changes before sync, restore after |
 | `ez restack` | Rebase each branch onto its parent |
 
 ### Navigation
@@ -82,6 +122,8 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | `ez top` | Check out the top of the stack |
 | `ez bottom` | Check out the bottom of the stack |
 | `ez checkout` | Interactively select a branch to check out |
+| `ez checkout <name>` | Switch directly to a branch by name (non-interactive) |
+| `ez checkout <number>` | Switch directly to a branch by PR number (non-interactive) |
 
 ### GitHub integration
 
@@ -91,7 +133,12 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | `ez push --title "..." --body "..."` | Push and set PR title/body on creation |
 | `ez push --base <branch>` | Push and override the PR base branch |
 | `ez submit` | Push **all branches** in the stack and create/update all PRs |
-| `ez pr-edit --title "..." --body "..."` | Edit the PR for the current branch |
+| `ez pr` | Open the current branch's PR in the browser |
+| `ez pr-link` | Print the PR URL to stdout (pipeable) |
+| `ez pr-edit` | Edit the PR body in `$EDITOR` |
+| `ez pr-edit --title "..." --body "..."` | Edit the PR title/body directly |
+| `ez draft` | Mark the current PR as a draft |
+| `ez ready` | Mark the current PR as ready for review |
 | `ez merge` | Merge the bottom PR of the stack via GitHub |
 
 ### Inspection
@@ -99,7 +146,9 @@ That's it. Two PRs, correctly chained, with GitHub base branches set automatical
 | Command | Description |
 |---------|-------------|
 | `ez log` | Show the full stack with branch names, commit counts, and PR status |
+| `ez log --json` | Show the full stack as a JSON array (machine-readable) |
 | `ez status` | Show the current branch and its position in the stack |
+| `ez status --json` | Show current branch info as JSON (machine-readable) |
 
 ### `ez push` vs `ez submit`
 
