@@ -138,7 +138,7 @@ pub fn repo_name() -> Result<String> {
     Ok(output)
 }
 
-/// Fetch the current body of a PR (raw markdown).
+/// Fetch the current body of a PR (raw markdown, no stack section stripped).
 pub fn get_pr_body(pr_number: u64) -> Result<String> {
     let body = run_gh(&[
         "pr",
