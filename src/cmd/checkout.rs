@@ -6,9 +6,39 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(_name: Option<&str>) -> Result<()> {
+pub fn run(name: Option<&str>) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
+
+    // Direct checkout by name or PR number.
+    if let Some(arg) = name {
+        let target = if let Ok(pr_num) = arg.parse::<u64>() {
+            // Look up branch by PR number.
+            state
+                .branches
+                .values()
+                .find(|m| m.pr_number == Some(pr_num))
+                .map(|m| m.name.clone())
+                .ok_or_else(|| anyhow::anyhow!("No branch found with PR #{pr_num}"))?
+        } else {
+            // Direct branch name — must be managed or trunk.
+            if !state.is_trunk(arg) && !state.is_managed(arg) {
+                anyhow::bail!("Branch `{arg}` is not tracked by ez");
+            }
+            arg.to_string()
+        };
+
+        if target == current {
+            ui::info(&format!("Already on `{target}`"));
+            return Ok(());
+        }
+
+        git::checkout(&target)?;
+        ui::success(&format!("Switched to `{target}`"));
+        return Ok(());
+    }
+
+    // Interactive selector (existing code below, unchanged).
 
     // Collect all managed branches, sorted
     let mut branches: Vec<String> = state.branches.keys().cloned().collect();
@@ -61,4 +91,46 @@ pub fn run(_name: Option<&str>) -> Result<()> {
     ui::success(&format!("Switched to `{selected}`"));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::stack::{BranchMeta, StackState};
+    use std::collections::HashMap;
+
+    fn state_with_pr() -> StackState {
+        let mut branches = HashMap::new();
+        branches.insert(
+            "feat/x".to_string(),
+            BranchMeta {
+                name: "feat/x".to_string(),
+                parent: "main".to_string(),
+                parent_head: "abc".to_string(),
+                pr_number: Some(99),
+            },
+        );
+        StackState {
+            trunk: "main".to_string(),
+            remote: "origin".to_string(),
+            branches,
+        }
+    }
+
+    #[test]
+    fn test_find_branch_by_pr_number() {
+        let state = state_with_pr();
+        let found = state
+            .branches
+            .values()
+            .find(|m| m.pr_number == Some(99))
+            .map(|m| m.name.clone());
+        assert_eq!(found, Some("feat/x".to_string()));
+    }
+
+    #[test]
+    fn test_arg_parses_as_pr_number() {
+        assert!("99".parse::<u64>().is_ok());
+        assert!("feat/x".parse::<u64>().is_err());
+        assert!("0".parse::<u64>().is_ok());
+    }
 }
