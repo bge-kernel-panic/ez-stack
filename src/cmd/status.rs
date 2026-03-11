@@ -5,9 +5,92 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(_json: bool) -> Result<()> {
+pub fn run(json: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
+
+    if json {
+        let is_trunk = state.is_trunk(&current);
+        let children = state.children_of(&current);
+
+        if is_trunk {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "branch": current,
+                    "parent": serde_json::Value::Null,
+                    "pr_number": serde_json::Value::Null,
+                    "pr_url": serde_json::Value::Null,
+                    "pr_state": serde_json::Value::Null,
+                    "is_draft": false,
+                    "depth": 0_usize,
+                    "commits": 0_usize,
+                    "children": children,
+                    "needs_restack": false,
+                })
+            );
+            return Ok(());
+        }
+
+        if !state.is_managed(&current) {
+            anyhow::bail!("Branch `{current}` is not tracked by ez.");
+        }
+
+        let meta = state.get_branch(&current)?;
+
+        let depth = state.path_to_trunk(&current).len().saturating_sub(1);
+
+        let range = format!("{}..{}", meta.parent, current);
+        let commits = git::log_oneline(&range, 50)?;
+        let commit_count = commits.len();
+
+        let needs_restack = git::rev_parse(&meta.parent)
+            .map(|tip| tip != meta.parent_head)
+            .unwrap_or(false);
+
+        let pr_status = github::get_pr_status(&current).unwrap_or(None);
+        let pr_number_val: serde_json::Value = match meta.pr_number {
+            Some(n) => serde_json::Value::Number(n.into()),
+            None => serde_json::Value::Null,
+        };
+        let pr_url_val: serde_json::Value = match meta.pr_number {
+            Some(n) => match github::repo_name().ok() {
+                Some(repo) => {
+                    serde_json::Value::String(format!("https://github.com/{repo}/pull/{n}"))
+                }
+                None => serde_json::Value::Null,
+            },
+            None => serde_json::Value::Null,
+        };
+        let pr_state_val: serde_json::Value = match meta.pr_number {
+            Some(_) => match &pr_status {
+                Some(pr) => serde_json::Value::String(pr.state.clone()),
+                None => serde_json::Value::String("OPEN".to_string()),
+            },
+            None => serde_json::Value::Null,
+        };
+        let is_draft_val: bool = match &pr_status {
+            Some(pr) => pr.is_draft,
+            None => false,
+        };
+
+        println!(
+            "{}",
+            serde_json::json!({
+                "branch": current,
+                "parent": meta.parent,
+                "pr_number": pr_number_val,
+                "pr_url": pr_url_val,
+                "pr_state": pr_state_val,
+                "is_draft": is_draft_val,
+                "depth": depth,
+                "commits": commit_count,
+                "children": children,
+                "needs_restack": needs_restack,
+            })
+        );
+        return Ok(());
+    }
 
     // If on trunk, show trunk info and direct children
     if state.is_trunk(&current) {
@@ -122,4 +205,27 @@ pub fn run(_json: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_status_json_schema_keys() {
+        let val = serde_json::json!({
+            "branch": "feat/x",
+            "parent": "main",
+            "pr_number": 42_u64,
+            "pr_url": "https://github.com/a/b/pull/42",
+            "pr_state": "OPEN",
+            "is_draft": false,
+            "depth": 2_usize,
+            "commits": 1_usize,
+            "children": ["feat/y"],
+            "needs_restack": false,
+        });
+        assert_eq!(val["branch"], "feat/x");
+        assert_eq!(val["pr_number"], 42);
+        assert!(val["children"].is_array());
+        assert_eq!(val["needs_restack"], false);
+    }
 }
