@@ -12,7 +12,7 @@ pub fn run(dry_run: bool, autostash: bool) -> Result<()> {
         ui::header("Sync preview (--dry-run, no changes will be made)");
         ui::info(&format!("Would fetch from `{}`", state.remote));
         ui::info(&format!(
-            "Would fast-forward `{}` to latest remote",
+            "Would update `{}` to latest remote (no checkout needed)",
             state.trunk
         ));
 
@@ -84,10 +84,7 @@ fn run_sync_inner() -> Result<()> {
     // Update trunk ref without checking it out — works even if trunk is in another worktree.
     match git::fetch_refupdate(&state.remote, &state.trunk) {
         Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
-        Err(_) => ui::warn(&format!(
-            "Could not update `{}` — it may have local commits that diverge from remote",
-            state.trunk
-        )),
+        Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
     }
 
     // Detect merged PRs and clean up.
