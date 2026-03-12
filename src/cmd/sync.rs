@@ -90,19 +90,26 @@ fn run_sync_inner() -> Result<()> {
     sp.finish_and_clear();
     ui::success(&format!("Fetched from `{}`", state.remote));
 
-    // Update trunk to latest.
-    // If we're currently on trunk, fast-forward merge (fetch refupdate refuses to update the
-    // checked-out branch). Otherwise, update the ref directly without switching branches.
-    if original_branch == state.trunk {
-        let remote_ref = format!("{}/{}", state.remote, state.trunk);
-        match git::fast_forward_merge(&remote_ref) {
-            Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
-            Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
-        }
-    } else {
-        match git::fetch_refupdate(&state.remote, &state.trunk) {
-            Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
-            Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+    // Update trunk to latest. git fetch above already refreshed origin/<trunk>.
+    // Only attempt to fast-forward local trunk when it is strictly behind the remote-tracking
+    // ref — skip silently if local is equal, ahead, or diverged (nothing safe to do).
+    let remote_tracking = format!("{}/{}", state.remote, state.trunk);
+    let trunk_is_behind = git::is_ancestor(&state.trunk, &remote_tracking)
+        && !git::is_ancestor(&remote_tracking, &state.trunk);
+    if trunk_is_behind {
+        if original_branch == state.trunk {
+            // Currently on trunk: fast-forward via merge (fetch refupdate won't update HEAD).
+            let remote_ref = format!("{}/{}", state.remote, state.trunk);
+            match git::fast_forward_merge(&remote_ref) {
+                Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
+                Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+            }
+        } else {
+            // Not on trunk: update ref directly without checkout.
+            match git::fetch_refupdate(&state.remote, &state.trunk) {
+                Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
+                Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+            }
         }
     }
 
@@ -120,6 +127,26 @@ fn run_sync_inner() -> Result<()> {
     for branch_name in &managed_branches {
         let meta = state.get_branch(branch_name)?;
         let pr_number = meta.pr_number;
+
+        // Auto-clean branches that no longer exist locally (deleted outside of ez).
+        if !git::branch_exists(branch_name) {
+            let parent = state.get_branch(branch_name)?.parent.clone();
+            let children = state.children_of(branch_name);
+            if let Ok(parent_tip) = git::rev_parse(&parent) {
+                for child_name in &children {
+                    if let Ok(child) = state.get_branch_mut(child_name) {
+                        child.parent = parent.clone();
+                        child.parent_head = parent_tip.clone();
+                    }
+                }
+            }
+            state.remove_branch(branch_name);
+            ui::success(&format!(
+                "Cleaned up `{branch_name}` (branch no longer exists locally)"
+            ));
+            cleaned.push(branch_name.clone());
+            continue;
+        }
 
         // Only check branches that have a PR associated.
         let merged = if pr_number.is_some() {
@@ -172,6 +199,11 @@ fn run_sync_inner() -> Result<()> {
         let meta = state.get_branch(branch_name)?;
         let parent = meta.parent.clone();
         let stored_parent_head = meta.parent_head.clone();
+
+        // Skip branches that no longer exist (shouldn't happen after cleanup above, but be safe).
+        if !git::branch_exists(branch_name) {
+            continue;
+        }
 
         let current_parent_tip = git::rev_parse(&parent)?;
 
