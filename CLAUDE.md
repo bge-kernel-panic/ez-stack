@@ -110,6 +110,8 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.4 | Stack links in PR bodies, `ez push --stack`, `filter_map` in stack_body |
 | 0.1.5 | `--autostash`, `--json`, non-interactive checkout, `--from`, `--if-changed`, `ez draft`/`ez ready`, `ez pr-link`, structured exit codes, SKILL.md |
 | 0.1.6 | Worktree support: `meta_dir()` uses `--git-common-dir`, `ez sync` worktree-safe, restack/commit/amend skip branches in other worktrees, `ez log` shows `[wt: <dirname>]` |
+| 0.1.7 | `ez sync` prunes merged worktrees; fix trunk fast-forward when current branch is trunk |
+| 0.1.8 | Fix `ez push` clobbering manual `gh pr edit --base` changes; only update PR base if stack parent is a git ancestor of the branch |
 
 ---
 

@@ -144,6 +144,18 @@ pub fn merge_base(a: &str, b: &str) -> Result<String> {
     run_git(&["merge-base", a, b])
 }
 
+/// Returns true if `ancestor` is reachable from `descendant` (i.e. is an ancestor of it).
+/// Returns false if not, or if either ref does not exist.
+pub fn is_ancestor(ancestor: &str, descendant: &str) -> bool {
+    let (success, _, _) =
+        run_git_with_status(&["merge-base", "--is-ancestor", ancestor, descendant]).unwrap_or((
+            false,
+            String::new(),
+            String::new(),
+        ));
+    success
+}
+
 pub fn default_branch() -> Result<String> {
     // Try to detect from remote
     if let Ok(out) = run_git(&["symbolic-ref", "refs/remotes/origin/HEAD"])

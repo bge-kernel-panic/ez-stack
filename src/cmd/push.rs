@@ -116,10 +116,24 @@ pub fn push_or_update_pr(
 
     let pr_url = match existing_pr {
         Some(pr) => {
-            // Update the base branch if the parent has changed.
-            github::update_pr_base(pr.number, parent)?;
             state.get_branch_mut(branch)?.pr_number = Some(pr.number);
-            ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
+
+            // Update PR base only when the stack parent is genuinely an ancestor of this branch.
+            // If the branch was rebased onto a different base outside of ez (bypassing stack
+            // metadata), is_ancestor returns false and we leave the PR base alone so we don't
+            // clobber a manual `gh pr edit --base` change.
+            if pr.base != parent {
+                if git::is_ancestor(parent, branch) {
+                    github::update_pr_base(pr.number, parent)?;
+                    ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
+                } else {
+                    ui::warn(&format!(
+                        "PR #{} base not updated: `{parent}` is not an ancestor of `{branch}` \
+                         (stack metadata may be stale — run `ez sync` or update manually)",
+                        pr.number
+                    ));
+                }
+            }
 
             // Only update body if user explicitly passed --body/--body-file.
             if body_explicitly_set {

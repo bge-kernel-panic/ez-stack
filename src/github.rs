@@ -23,6 +23,7 @@ pub struct PrInfo {
     pub url: String,
     pub state: String,
     pub title: String,
+    pub base: String,
     pub is_draft: bool,
     pub merged: bool,
 }
@@ -52,6 +53,7 @@ pub fn create_pr(title: &str, body: &str, base: &str, head: &str, draft: bool) -
         url,
         state: "OPEN".to_string(),
         title: title.to_string(),
+        base: base.to_string(),
         is_draft: draft,
         merged: false,
     })
@@ -68,7 +70,7 @@ pub fn get_pr_status(branch: &str) -> Result<Option<PrInfo>> {
         "view",
         branch,
         "--json",
-        "number,url,state,title,isDraft,mergedAt",
+        "number,url,state,title,isDraft,mergedAt,baseRefName",
     ]);
 
     match output {
@@ -79,6 +81,7 @@ pub fn get_pr_status(branch: &str) -> Result<Option<PrInfo>> {
                 url: v["url"].as_str().unwrap_or("").to_string(),
                 state: v["state"].as_str().unwrap_or("UNKNOWN").to_string(),
                 title: v["title"].as_str().unwrap_or("").to_string(),
+                base: v["baseRefName"].as_str().unwrap_or("").to_string(),
                 is_draft: v["isDraft"].as_bool().unwrap_or(false),
                 merged: v["mergedAt"].as_str().is_some_and(|s| !s.is_empty()),
             }))
