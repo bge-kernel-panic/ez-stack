@@ -304,6 +304,18 @@ pub fn fetch_refupdate(remote: &str, branch: &str) -> Result<()> {
     Ok(())
 }
 
+/// Remove a linked worktree at `path`. Fails if the worktree has uncommitted changes.
+pub fn worktree_remove(path: &str) -> Result<()> {
+    run_git(&["worktree", "remove", path])?;
+    Ok(())
+}
+
+/// Prune stale worktree admin entries (git worktree prune).
+pub fn worktree_prune() -> Result<()> {
+    run_git(&["worktree", "prune"])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

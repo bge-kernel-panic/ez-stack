@@ -16,11 +16,20 @@ pub fn run(dry_run: bool, autostash: bool) -> Result<()> {
             state.trunk
         ));
 
+        let dry_worktree_map: std::collections::HashMap<String, String> = git::worktree_list()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|wt| wt.branch.map(|b| (b, wt.path)))
+            .collect();
+
         let managed_branches: Vec<String> = state.branches.keys().cloned().collect();
         for branch_name in &managed_branches {
             let meta = state.get_branch(branch_name)?;
             if meta.pr_number.is_some() {
                 ui::info(&format!("Would check if PR for `{branch_name}` is merged"));
+                if let Some(wt_path) = dry_worktree_map.get(branch_name.as_str()) {
+                    ui::info(&format!("  → Would remove worktree at `{wt_path}`"));
+                }
             }
         }
 
@@ -81,11 +90,28 @@ fn run_sync_inner() -> Result<()> {
     sp.finish_and_clear();
     ui::success(&format!("Fetched from `{}`", state.remote));
 
-    // Update trunk ref without checking it out — works even if trunk is in another worktree.
-    match git::fetch_refupdate(&state.remote, &state.trunk) {
-        Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
-        Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+    // Update trunk to latest.
+    // If we're currently on trunk, fast-forward merge (fetch refupdate refuses to update the
+    // checked-out branch). Otherwise, update the ref directly without switching branches.
+    if original_branch == state.trunk {
+        let remote_ref = format!("{}/{}", state.remote, state.trunk);
+        match git::fast_forward_merge(&remote_ref) {
+            Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
+            Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+        }
+    } else {
+        match git::fetch_refupdate(&state.remote, &state.trunk) {
+            Ok(()) => ui::success(&format!("Updated `{}` to latest", state.trunk)),
+            Err(e) => ui::warn(&format!("Could not update `{}` — {e}", state.trunk)),
+        }
     }
+
+    // Build branch→worktree map for pruning merged branches.
+    let worktree_map: std::collections::HashMap<String, String> = git::worktree_list()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|wt| wt.branch.map(|b| (b, wt.path)))
+        .collect();
 
     // Detect merged PRs and clean up.
     let managed_branches: Vec<String> = state.branches.keys().cloned().collect();
@@ -122,6 +148,14 @@ fn run_sync_inner() -> Result<()> {
 
         // Remove from state.
         state.remove_branch(branch_name);
+
+        // Remove worktree for this branch (if any).
+        if let Some(wt_path) = worktree_map.get(branch_name.as_str()) {
+            match git::worktree_remove(wt_path) {
+                Ok(()) => ui::success(&format!("Removed worktree at `{wt_path}`")),
+                Err(e) => ui::warn(&format!("Could not remove worktree at `{wt_path}`: {e}")),
+            }
+        }
 
         // Delete local branch (ignore errors if already gone).
         let _ = git::delete_branch(branch_name, true);
@@ -199,6 +233,9 @@ fn run_sync_inner() -> Result<()> {
     if cleaned.is_empty() && restacked == 0 {
         ui::info("Everything is up to date");
     }
+
+    // Prune stale worktree admin entries.
+    let _ = git::worktree_prune();
 
     Ok(())
 }
