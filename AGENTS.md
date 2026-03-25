@@ -6,11 +6,17 @@ Instructions for AI agents working with `ez-stack`.
 
 `ez` is a CLI for managing stacked pull requests on GitHub. If a repository has `.git/ez/stack.json`, branch management and PR operations should go through `ez`, not raw `git checkout -b`, `git commit`, `git push`, or `gh pr create`.
 
-## Install the tool
+## Install or update the tool
 
 ```bash
+# First install
 cargo install ez-stack
-ez --version
+
+# Update to latest (auto-detects install method)
+ez update
+
+# Check for updates without installing
+ez update --check
 ```
 
 Requirements:

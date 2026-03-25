@@ -230,6 +230,17 @@ pub enum Commands {
     /// Open the current branch's PR in the browser
     Pr,
 
+    /// Update ez to the latest version
+    Update {
+        /// Install a specific version (e.g., v0.1.11)
+        #[arg(long)]
+        version: Option<String>,
+
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Manage git worktrees
     Worktree(WorktreeArgs),
 }

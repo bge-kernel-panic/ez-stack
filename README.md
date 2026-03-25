@@ -107,7 +107,7 @@ Install ez-stack, a CLI for stacked PRs on GitHub, and set it up in this repo.
 
 **Steps:**
 
-1. Install the binary: `cargo install ez-stack`
+1. Install the binary: `cargo install ez-stack` (or update: `ez update`)
 2. Verify it works: `ez --version`
 3. Initialize in this repo: `ez init`
 4. Add these rules to the project's CLAUDE.md (or equivalent agent instructions file):
@@ -202,6 +202,14 @@ Exit codes: 0=ok, 2=gh error, 3=conflict, 4=stale ref, 5=usage error, 6=unstaged
 | `ez diff --stat` | Show only the diffstat summary |
 | `ez diff --name-only` | Show only changed file names |
 | `ez parent` | Print the parent branch name to stdout (pipeable) |
+
+### Updating
+
+| Command | Description |
+|---------|-------------|
+| `ez update` | Update ez to the latest version |
+| `ez update --check` | Check for updates without installing |
+| `ez update --version v0.1.12` | Install a specific version |
 
 ### `ez push` vs `ez submit`
 

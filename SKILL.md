@@ -95,6 +95,16 @@ ez-stack is a CLI for managing stacked PRs on GitHub. When `.git/ez/stack.json` 
 | Force-delete worktree (discard uncommitted changes) | `ez worktree delete <name> --force` |
 | List all worktrees (name, branch, path) | `ez worktree list` |
 
+### Updating
+
+| Intent | Command |
+|--------|---------|
+| Update ez to latest version | `ez update` |
+| Check for updates without installing | `ez update --check` |
+| Install a specific version | `ez update --version v0.1.12` |
+
+**Agents should run `ez update --check` at the start of a session** to ensure they have the latest version. If an update is available, run `ez update` to install it.
+
 ## Agent-Specific Patterns
 
 ### Parse stack state
