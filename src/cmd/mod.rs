@@ -17,6 +17,7 @@ pub mod pr_link;
 pub mod pr_view;
 pub mod push;
 pub mod restack;
+pub mod shell_init;
 pub mod status;
 pub mod submit;
 pub mod sync;

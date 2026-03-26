@@ -350,6 +350,16 @@ To install a specific version:
 curl -fsSL https://raw.githubusercontent.com/rohoswagger/ez-stack/main/install.sh | bash -s -- v0.1.0
 ```
 
+### Shell integration (recommended)
+
+After installing the binary, add shell integration to your `.bashrc` or `.zshrc` for auto-cd on worktree create/delete:
+
+```bash
+eval "$(ez shell-init)"
+```
+
+This makes `ez worktree create feat/auth` automatically `cd` into the new worktree, and `ez worktree delete feat/auth` auto-cd back to the repo root. Without the shell integration, use `cd $(ez worktree create feat/auth)`.
+
 ### GitHub releases
 
 Pre-built binaries for Linux and macOS are available on the [Releases](https://github.com/rohoswagger/ez-stack/releases) page.

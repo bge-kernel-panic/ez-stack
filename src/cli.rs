@@ -335,6 +335,13 @@ Examples:
         check: bool,
     },
 
+    /// Print shell integration code (add `eval "$(ez shell-init)"` to your .bashrc/.zshrc)
+    #[command(after_help = "\
+Examples:
+  eval \"$(ez shell-init)\"
+  ez shell-init >> ~/.bashrc")]
+    ShellInit,
+
     /// Manage git worktrees
     Worktree(WorktreeArgs),
 }

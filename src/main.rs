@@ -172,6 +172,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::PrLink => cmd::pr_link::run(),
         Commands::Pr => cmd::pr_view::run(),
         Commands::Update { version, check } => cmd::update::run(version.as_deref(), check),
+        Commands::ShellInit => cmd::shell_init::run(),
         Commands::Worktree(args) => match args.command {
             WorktreeCommands::Create { name, from } => {
                 cmd::worktree::create(&name, from.as_deref())

@@ -73,4 +73,7 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
 fi
 
 echo ""
+info "For auto-cd on worktree create/delete, add to your shell config:"
+echo "  eval \"\$(ez shell-init)\""
+echo ""
 success "Run 'ez --help' to get started"

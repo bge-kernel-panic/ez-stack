@@ -265,13 +265,6 @@ fn run_sync_inner(force: bool) -> Result<()> {
 
     state.save()?;
 
-    // Summary.
-    if !cleaned.is_empty() {
-        ui::info(&format!("Cleaned up {} merged branch(es)", cleaned.len()));
-    }
-    if restacked > 0 {
-        ui::info(&format!("Restacked {restacked} branch(es)"));
-    }
     if cleaned.is_empty() && restacked == 0 {
         ui::info("Everything is up to date");
     }
