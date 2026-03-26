@@ -216,6 +216,13 @@ Examples:
         json: bool,
     },
 
+    /// List all branches in the stack with PR numbers and worktree paths
+    #[command(after_help = "\
+Examples:
+  ez branch
+  ez branch | grep feat/")]
+    Branch,
+
     /// Show diff of current branch vs its parent (what the PR reviewer sees)
     #[command(after_help = "\
 Examples:

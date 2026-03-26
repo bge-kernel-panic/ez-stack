@@ -82,6 +82,7 @@ ez-stack is a CLI for managing stacked PRs on GitHub. When `.git/ez/stack.json` 
 | Show stack tree as JSON | `ez log --json` |
 | Show current branch info | `ez status` |
 | Show status as JSON | `ez status --json` |
+| List all branches (with PRs and worktree paths) | `ez branch` |
 
 ### Worktrees
 

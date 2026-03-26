@@ -154,6 +154,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Top => cmd::navigate::top(),
         Commands::Bottom => cmd::navigate::bottom(),
         Commands::Checkout { name } => cmd::checkout::run(name.as_deref()),
+        Commands::Branch => cmd::branch::run(),
         Commands::Log { json } => cmd::log::run(json),
         Commands::Status { json } => cmd::status::run(json),
         Commands::Diff { stat, name_only } => cmd::diff::run(stat, name_only),

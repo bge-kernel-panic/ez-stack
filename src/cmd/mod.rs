@@ -1,4 +1,5 @@
 pub mod amend;
+pub mod branch;
 pub mod checkout;
 pub mod commit;
 pub mod create;

@@ -129,6 +129,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.12 | `ez update` — self-update command, auto-detects install method (cargo vs script), `--check` for version check without install, `--version` for specific version |
 | 0.1.13 | Examples in every `--help`, commit SHA in output, `ez worktree delete --yes` from inside worktree, `worktree_path` fix for linked worktrees |
 | 0.1.14 | Phased worktree create/delete: validate→mutate→output with rollback on failure; chdir before worktree remove; prune stale entries; recover from broken worktree state |
+| 0.1.15 | `ez branch` — list all branches with PR numbers and worktree paths |
 
 ---
 

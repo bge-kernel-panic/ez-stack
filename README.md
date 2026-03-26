@@ -202,6 +202,7 @@ Exit codes: 0=ok, 2=gh error, 3=conflict, 4=stale ref, 5=usage error, 6=unstaged
 | `ez diff --stat` | Show only the diffstat summary |
 | `ez diff --name-only` | Show only changed file names |
 | `ez parent` | Print the parent branch name to stdout (pipeable) |
+| `ez branch` | List all branches with PR numbers and worktree paths |
 
 ### Updating
 
