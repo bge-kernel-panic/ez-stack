@@ -49,8 +49,15 @@ fn main() {
         }
     };
 
+    // Check if this is a command that should show the first-run hint.
+    let is_setup_command = matches!(cli.command, Commands::Setup { .. } | Commands::ShellInit);
+
     match run(cli) {
         Ok(()) => {
+            // First-run hint: prompt to run `ez setup` once.
+            if !is_setup_command && !cmd::setup::is_setup_done() {
+                ui::hint("Shell not configured — run `ez setup` for PATH and worktree auto-cd");
+            }
             ui::exit_status(0, start.elapsed());
         }
         Err(e) => {
@@ -172,6 +179,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::PrLink => cmd::pr_link::run(),
         Commands::Pr => cmd::pr_view::run(),
         Commands::Update { version, check } => cmd::update::run(version.as_deref(), check),
+        Commands::Setup { yes } => cmd::setup::run(yes),
         Commands::ShellInit => cmd::shell_init::run(),
         Commands::Worktree(args) => match args.command {
             WorktreeCommands::Create { name, from } => {

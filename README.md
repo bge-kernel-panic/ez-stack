@@ -108,7 +108,7 @@ Install ez-stack, a CLI for stacked PRs on GitHub, and set it up in this repo.
 **Steps:**
 
 1. Install the binary: `cargo install ez-stack` (or update: `ez update`)
-2. Verify it works: `ez --version`
+2. Configure shell: `ez setup --yes`
 3. Initialize in this repo: `ez init`
 4. Add these rules to the project's CLAUDE.md (or equivalent agent instructions file):
 

@@ -335,11 +335,21 @@ Examples:
         check: bool,
     },
 
-    /// Print shell integration code (add `eval "$(ez shell-init)"` to your .bashrc/.zshrc)
+    /// Configure shell integration (PATH + auto-cd for worktrees)
     #[command(after_help = "\
 Examples:
-  eval \"$(ez shell-init)\"
-  ez shell-init >> ~/.bashrc")]
+  ez setup
+  ez setup --yes")]
+    Setup {
+        /// Skip confirmation (for agents and scripts)
+        #[arg(short, long)]
+        yes: bool,
+    },
+
+    /// Print shell integration code (used by `ez setup` internally)
+    #[command(after_help = "\
+Examples:
+  eval \"$(ez shell-init)\"")]
     ShellInit,
 
     /// Manage git worktrees

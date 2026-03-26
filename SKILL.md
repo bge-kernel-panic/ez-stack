@@ -104,6 +104,9 @@ ez-stack is a CLI for managing stacked PRs on GitHub. When `.git/ez/stack.json` 
 | Update ez to latest version | `ez update` |
 | Check for updates without installing | `ez update --check` |
 | Install a specific version | `ez update --version v0.1.12` |
+| Configure shell (first install) | `ez setup --yes` |
+
+**First install:** After `cargo install ez-stack`, run `ez setup --yes` to configure PATH and shell integration. This is a one-time setup.
 
 **Agents should run `ez update --check` at the start of a session** to ensure they have the latest version. If an update is available, run `ez update` to install it.
 
