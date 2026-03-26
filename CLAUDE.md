@@ -135,6 +135,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.18 | `ez setup` — one-command shell configuration (PATH + shell-init); first-run hint prompts users to run it; `ez setup --yes` for agents |
 | 0.1.19 | `ez checkout` auto-cd's into worktree if branch is checked out there; shell wrapper intercepts checkout for cd |
 | 0.1.20 | Auto-drop redundant commits during sync/restack via `git cherry` + `git rebase`; remove redundant restack summary |
+| 0.1.21 | Fix `ez sync` not switching off a branch before deleting it (stayed on cleaned-up branch) |
 
 ---
 

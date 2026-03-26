@@ -194,6 +194,11 @@ fn run_sync_inner(force: bool) -> Result<()> {
             }
         }
 
+        // If we're on the branch being deleted, switch to trunk first.
+        if *branch_name == original_branch {
+            let _ = git::checkout(&state.trunk);
+        }
+
         // Delete local branch (ignore errors if already gone).
         let _ = git::delete_branch(branch_name, true);
 
