@@ -38,13 +38,19 @@ pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Resu
         bail!(EzError::NothingToCommit);
     }
 
+    let before = git::rev_parse("HEAD")?;
+
     git::commit(message)?;
-    let sha = git::rev_parse("HEAD")?;
-    let short_sha = &sha[..sha.len().min(7)];
+
+    let after = git::rev_parse("HEAD")?;
+    let short_after = &after[..after.len().min(7)];
     let subject = message.lines().next().unwrap_or(message);
-    ui::success(&format!("Committed {short_sha} on `{current}`: {subject}"));
+    ui::success(&format!(
+        "Committed {short_after} on `{current}`: {subject}"
+    ));
 
     // Show diff stat so agents can verify what was committed.
+    let (files, ins, del) = git::diff_stat_numbers();
     if let Ok(stat) = git::show_stat_head() {
         let stat = stat.trim();
         if !stat.is_empty() {
@@ -52,8 +58,19 @@ pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Resu
         }
     }
 
+    // Emit receipt.
+    ui::receipt(&serde_json::json!({
+        "cmd": "commit",
+        "branch": current,
+        "before": &before[..before.len().min(7)],
+        "after": short_after,
+        "files_changed": files,
+        "insertions": ins,
+        "deletions": del,
+    }));
+
     // Auto-restack children so they stay on top of the new HEAD.
-    let new_head = git::rev_parse("HEAD")?;
+    let new_head = after;
     let children = state.children_of(&current);
 
     let current_root = git::repo_root()?;

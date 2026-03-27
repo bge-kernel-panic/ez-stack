@@ -99,6 +99,17 @@ pub fn exit_status(code: i32, elapsed: std::time::Duration) {
     eprintln!("{}", format!("[{status} | {duration}]").dimmed());
 }
 
+/// Emit a structured JSON receipt to stderr (dimmed).
+/// Receipts let agents verify what a mutating command actually did.
+pub fn receipt(value: &serde_json::Value) {
+    eprintln!("{}", receipt_json(value).dimmed());
+}
+
+/// Pure function: format a receipt as a JSON string (testable without I/O).
+pub fn receipt_json(value: &serde_json::Value) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string())
+}
+
 pub fn confirm(prompt: &str) -> bool {
     let term = Term::stderr();
     eprint!("{} {} ", "?".blue().bold(), prompt);

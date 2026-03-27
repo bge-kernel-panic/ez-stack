@@ -52,6 +52,12 @@ pub fn run(
     let body_explicitly_set = body.is_some() || body_file.is_some();
 
     // Create or update the PR.
+    let had_pr_before = state
+        .get_branch(&current)
+        .ok()
+        .and_then(|m| m.pr_number)
+        .is_some();
+
     let pr_url = push_or_update_pr(
         &mut state,
         &current,
@@ -62,8 +68,19 @@ pub fn run(
         body_explicitly_set,
     )?;
 
+    let pr_number = state.get_branch(&current).ok().and_then(|m| m.pr_number);
+
     state.save()?;
     ui::success(&format!("PR: {pr_url}"));
+
+    ui::receipt(&serde_json::json!({
+        "cmd": "push",
+        "branch": current,
+        "pr_number": pr_number,
+        "pr_url": pr_url,
+        "created": !had_pr_before,
+    }));
+
     Ok(())
 }
 

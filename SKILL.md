@@ -189,6 +189,23 @@ ez pr
 open $(ez pr-link)
 ```
 
+## Mutation Receipts
+
+Every mutating command emits a JSON receipt to stderr (dimmed). Agents can parse receipts to verify what happened without running a separate command.
+
+```json
+{"cmd":"commit","branch":"feat/auth","before":"abc1234","after":"def5678","files_changed":3,"insertions":42,"deletions":7}
+{"cmd":"sync","branch":"feat/auth","action":"restacked","parent":"main","before":"abc1234","after":"def5678","redundant_commits":0}
+{"cmd":"sync","branch":"feat/old","action":"cleaned","reason":"merged"}
+{"cmd":"push","branch":"feat/auth","pr_number":42,"pr_url":"https://github.com/...","created":true}
+{"cmd":"create","branch":"feat/new","parent":"main","head":"abc1234"}
+```
+
+Key fields:
+- `redundant_commits` > 0 means commits were auto-dropped (already in parent via different path)
+- `created: true` on push means a new PR was created (vs updated)
+- `before`/`after` SHAs let agents detect content drift after restack
+
 ## Output Format
 
 Every command appends a status line to stderr:

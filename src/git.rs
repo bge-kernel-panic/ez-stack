@@ -83,6 +83,35 @@ pub fn show_stat_head() -> Result<String> {
     run_git(&["show", "--stat", "--no-patch", "--format=", "HEAD"])
 }
 
+/// Parse the shortstat for HEAD into (files_changed, insertions, deletions).
+pub fn diff_stat_numbers() -> (u64, u64, u64) {
+    let output = run_git(&["diff", "--shortstat", "HEAD~1..HEAD"]).unwrap_or_default();
+    parse_shortstat(&output)
+}
+
+/// Parse `git diff --shortstat` output into (files, insertions, deletions).
+fn parse_shortstat(s: &str) -> (u64, u64, u64) {
+    let mut files = 0u64;
+    let mut ins = 0u64;
+    let mut del = 0u64;
+    for part in s.split(',') {
+        let part = part.trim();
+        let num: u64 = part
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
+        if part.contains("file") {
+            files = num;
+        } else if part.contains("insertion") {
+            ins = num;
+        } else if part.contains("deletion") {
+            del = num;
+        }
+    }
+    (files, ins, del)
+}
+
 /// Run `git diff` with the given range and optional flags.
 /// Returns the raw output (may be empty if no changes).
 pub fn diff(range: &str, stat: bool, name_only: bool) -> Result<String> {

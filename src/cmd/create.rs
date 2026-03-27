@@ -68,6 +68,13 @@ pub fn run(name: &str, message: Option<&str>, all: bool, from: Option<&str>) -> 
         ui::success(&format!("Created branch `{name}` on top of `{parent}`"));
     }
 
+    ui::receipt(&serde_json::json!({
+        "cmd": "create",
+        "branch": name,
+        "parent": parent,
+        "head": &parent_head[..parent_head.len().min(7)],
+    }));
+
     Ok(())
 }
 

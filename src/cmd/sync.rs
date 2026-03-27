@@ -203,6 +203,12 @@ fn run_sync_inner(force: bool) -> Result<()> {
         let _ = git::delete_branch(branch_name, true);
 
         ui::success(&format!("Cleaned up merged branch: `{branch_name}`"));
+        ui::receipt(&serde_json::json!({
+            "cmd": "sync",
+            "branch": branch_name,
+            "action": "cleaned",
+            "reason": "merged",
+        }));
         cleaned.push(branch_name.clone());
     }
 
@@ -234,6 +240,8 @@ fn run_sync_inner(force: bool) -> Result<()> {
             continue;
         }
 
+        let before_sha = git::rev_parse(branch_name).unwrap_or_default();
+
         let sp = ui::spinner(&format!("Restacking `{branch_name}` onto `{parent}`..."));
         let ok = git::rebase_onto(&current_parent_tip, &stored_parent_head, branch_name)?;
         sp.finish_and_clear();
@@ -244,15 +252,14 @@ fn run_sync_inner(force: bool) -> Result<()> {
             restacked += 1;
             ui::success(&format!("Restacked `{branch_name}` onto `{parent}`"));
 
-            // Post-restack: use `git cherry` to detect commits whose patches
-            // are already upstream (landed via a different path). If found,
-            // run a plain `git rebase` which auto-drops them via patch-id matching.
+            // Post-restack: detect and auto-drop redundant commits.
+            let mut redundant_count: u64 = 0;
             if let Ok(cherry) = git::cherry(&parent, branch_name) {
                 let redundant: Vec<&str> = cherry.lines().filter(|l| l.starts_with("- ")).collect();
                 if !redundant.is_empty() {
+                    redundant_count = redundant.len() as u64;
                     ui::info(&format!(
-                        "Dropping {} redundant commit(s) from `{branch_name}` (already in `{parent}`)",
-                        redundant.len()
+                        "Dropping {redundant_count} redundant commit(s) from `{branch_name}` (already in `{parent}`)",
                     ));
                     match git::rebase(&parent, branch_name) {
                         Ok(true) => {
@@ -276,6 +283,17 @@ fn run_sync_inner(force: bool) -> Result<()> {
                     }
                 }
             }
+
+            let after_sha = git::rev_parse(branch_name).unwrap_or_default();
+            ui::receipt(&serde_json::json!({
+                "cmd": "sync",
+                "branch": branch_name,
+                "action": "restacked",
+                "parent": parent,
+                "before": &before_sha[..before_sha.len().min(7)],
+                "after": &after_sha[..after_sha.len().min(7)],
+                "redundant_commits": redundant_count,
+            }));
         } else {
             // Save progress so the user can fix and continue.
             state.save()?;

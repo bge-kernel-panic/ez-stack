@@ -136,6 +136,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.19 | `ez checkout` auto-cd's into worktree if branch is checked out there; shell wrapper intercepts checkout for cd |
 | 0.1.20 | Auto-drop redundant commits during sync/restack via `git cherry` + `git rebase`; remove redundant restack summary |
 | 0.1.21 | Fix `ez sync` not switching off a branch before deleting it (stayed on cleaned-up branch) |
+| 0.1.22 | Mutation receipts: every mutating command (commit, amend, sync, restack, push, create) emits structured JSON receipt to stderr; `git::diff_stat_numbers()` helper; gh abstraction + scope-aware stacking documented as deferred |
 
 ---
 
@@ -171,6 +172,9 @@ These have been discussed and intentionally deferred:
 - **CI status in `ez log`** — Requires `gh run list` per branch (slow, extra API calls). Separate feature.
 - **Interactive reorder** — Complex TUI.
 - **`ez co <pr-number>`** — Superseded by `ez checkout <pr-number>` (v0.1.5).
+- **Remove `gh` dependency** — All `gh` usage in `github.rs` could be replaced with direct GitHub API calls via `reqwest` + token. Benefits: smaller binary, works in environments without `gh`, enables GitLab/Bitbucket support. Costs: ~500 lines of HTTP client code, auth management. Keep `gh` for now (auth handling is worth it); abstract when multi-platform support is needed.
+- **Scope-aware stacking** — `ez create --scope "src/auth/**"` stores intent metadata per branch. `ez commit` warns when staged files are outside scope. Foundation (mutation receipts) shipped in v0.1.22; scope routing is the next layer.
+- **Python wheel distribution** — `pip install ez-stack` for the Python-heavy AI agent ecosystem. Requires building a wheel that bundles the Rust binary.
 
 ---
 

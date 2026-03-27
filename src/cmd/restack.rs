@@ -35,6 +35,8 @@ pub fn run() -> Result<()> {
         }
 
         // Branch is stale — rebase onto the new parent tip.
+        let before_sha = git::rev_parse(branch_name).unwrap_or_default();
+
         let sp = ui::spinner(&format!("Restacking `{branch_name}` onto `{parent}`..."));
         let ok = git::rebase_onto(&current_parent_tip, &stored_parent_head, branch_name)?;
         sp.finish_and_clear();
@@ -46,12 +48,13 @@ pub fn run() -> Result<()> {
             ui::success(&format!("Restacked `{branch_name}` onto `{parent}`"));
 
             // Auto-drop commits whose patches are already upstream.
+            let mut redundant_count: u64 = 0;
             if let Ok(cherry) = git::cherry(&parent, branch_name) {
                 let redundant: Vec<&str> = cherry.lines().filter(|l| l.starts_with("- ")).collect();
                 if !redundant.is_empty() {
+                    redundant_count = redundant.len() as u64;
                     ui::info(&format!(
-                        "Dropping {} redundant commit(s) from `{branch_name}` (already in `{parent}`)",
-                        redundant.len()
+                        "Dropping {redundant_count} redundant commit(s) from `{branch_name}` (already in `{parent}`)",
                     ));
                     match git::rebase(&parent, branch_name) {
                         Ok(true) => {
@@ -75,6 +78,17 @@ pub fn run() -> Result<()> {
                     }
                 }
             }
+
+            let after_sha = git::rev_parse(branch_name).unwrap_or_default();
+            ui::receipt(&serde_json::json!({
+                "cmd": "restack",
+                "branch": branch_name,
+                "action": "restacked",
+                "parent": parent,
+                "before": &before_sha[..before_sha.len().min(7)],
+                "after": &after_sha[..after_sha.len().min(7)],
+                "redundant_commits": redundant_count,
+            }));
         } else {
             git::checkout(&original_branch)?;
             state.save()?;

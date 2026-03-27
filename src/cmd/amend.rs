@@ -25,12 +25,16 @@ pub fn run(message: Option<&str>, all: bool) -> Result<()> {
         bail!(EzError::NothingToCommit);
     }
 
+    let before = git::rev_parse("HEAD")?;
+
     git::commit_amend(message)?;
-    let sha = git::rev_parse("HEAD")?;
-    let short_sha = &sha[..sha.len().min(7)];
-    ui::success(&format!("Amended commit {short_sha}"));
+
+    let after = git::rev_parse("HEAD")?;
+    let short_after = &after[..after.len().min(7)];
+    ui::success(&format!("Amended commit {short_after}"));
 
     // Show diff stat so agents can verify what was amended.
+    let (files, ins, del) = git::diff_stat_numbers();
     if let Ok(stat) = git::show_stat_head() {
         let stat = stat.trim();
         if !stat.is_empty() {
@@ -38,8 +42,19 @@ pub fn run(message: Option<&str>, all: bool) -> Result<()> {
         }
     }
 
+    // Emit receipt.
+    ui::receipt(&serde_json::json!({
+        "cmd": "amend",
+        "branch": current,
+        "before": &before[..before.len().min(7)],
+        "after": short_after,
+        "files_changed": files,
+        "insertions": ins,
+        "deletions": del,
+    }));
+
     // Auto-restack children of the current branch.
-    let current_head = git::rev_parse("HEAD")?;
+    let current_head = after;
     let children = state.children_of(&current);
 
     let current_root = git::repo_root()?;
