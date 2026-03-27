@@ -43,6 +43,8 @@ cd $(ez worktree create my-task-name --from main)
 #    The main repo directory is untouched
 ```
 
+**Important:** Always use `--from main` when creating worktrees or branches that should be independent. Without it, ez stacks on the current branch, which may not be what you want.
+
 **Why worktrees?** If multiple agents (or you in multiple terminals) work in the same directory, they overwrite each other's files, create merge conflicts, and corrupt each other's staged changes. A worktree gives each agent a completely isolated copy of the repo with its own branch. All worktrees share the same `.git` so branches and state are synchronized.
 
 **Setting up the worktree:** Your worktree is a full working copy. If the project needs setup (install deps, build, etc.), run that in your worktree:
@@ -97,11 +99,21 @@ ez diff --name-only         # Just the file list
 ez diff                     # Full diff (what the PR reviewer sees)
 ```
 
+### Check working tree before committing
+
+```bash
+ez status                   # Shows stack info + staged/modified/untracked counts
+ez status --json            # Machine-readable version with staged_files, modified_files, untracked_files
+```
+
 ### Push and create PRs
 
 ```bash
 # Push just this branch
 ez push --title "feat: add auth types"
+
+# Override the PR base branch (if stacked on the wrong parent)
+ez push --base main
 
 # Or push the entire stack at once (creates PRs for all branches)
 ez submit

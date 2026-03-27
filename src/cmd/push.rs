@@ -141,8 +141,14 @@ pub fn push_or_update_pr(
             // clobber a manual `gh pr edit --base` change.
             if pr.base != parent {
                 if git::is_ancestor(parent, branch) {
-                    github::update_pr_base(pr.number, parent)?;
-                    ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
+                    if let Err(e) = github::update_pr_base(pr.number, parent) {
+                        ui::warn(&format!(
+                            "Push succeeded but PR #{} base could not be updated to `{parent}`: {e}",
+                            pr.number
+                        ));
+                    } else {
+                        ui::info(&format!("Updated PR #{} base to `{parent}`", pr.number));
+                    }
                 } else {
                     ui::warn(&format!(
                         "PR #{} base not updated: `{parent}` is not an ancestor of `{branch}` \
@@ -156,15 +162,26 @@ pub fn push_or_update_pr(
             if body_explicitly_set {
                 let raw_body = body_override.unwrap_or("Part of a stack managed by `ez`.");
                 let body = crate::stack_body::build_stack_body(&ancestors, raw_body);
-                github::edit_pr(pr.number, title_override, Some(&body))?;
-                if title_override.is_some() {
+                if let Err(e) = github::edit_pr(pr.number, title_override, Some(&body)) {
+                    ui::warn(&format!(
+                        "Push succeeded but PR #{} could not be updated: {e}",
+                        pr.number
+                    ));
+                } else {
+                    if title_override.is_some() {
+                        ui::info(&format!("Updated PR #{} title", pr.number));
+                    }
+                    ui::info(&format!("Updated PR #{} body", pr.number));
+                }
+            } else if title_override.is_some() {
+                if let Err(e) = github::edit_pr(pr.number, title_override, None) {
+                    ui::warn(&format!(
+                        "Push succeeded but PR #{} title could not be updated: {e}",
+                        pr.number
+                    ));
+                } else {
                     ui::info(&format!("Updated PR #{} title", pr.number));
                 }
-                ui::info(&format!("Updated PR #{} body", pr.number));
-            } else if title_override.is_some() {
-                // Title only, no body change.
-                github::edit_pr(pr.number, title_override, None)?;
-                ui::info(&format!("Updated PR #{} title", pr.number));
             }
 
             pr.url

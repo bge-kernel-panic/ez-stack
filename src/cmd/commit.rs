@@ -40,7 +40,30 @@ pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Resu
 
     let before = git::rev_parse("HEAD")?;
 
-    git::commit(message)?;
+    // Snapshot modified files before commit so we can detect hook changes on failure.
+    let pre_modified = git::modified_files();
+
+    if let Err(e) = git::commit(message) {
+        // Check if pre-commit hooks modified files.
+        let post_modified = git::modified_files();
+        let hook_changed: Vec<&String> = post_modified
+            .iter()
+            .filter(|f| !pre_modified.contains(f))
+            .collect();
+        if !hook_changed.is_empty() {
+            ui::warn(&format!(
+                "Pre-commit hook modified {} file(s):",
+                hook_changed.len()
+            ));
+            for f in &hook_changed {
+                eprintln!("  {f}");
+            }
+            ui::hint(
+                "Re-stage and retry: `ez commit -am \"...\"` or `git add -u && ez commit -m \"...\"`",
+            );
+        }
+        return Err(e);
+    }
 
     let after = git::rev_parse("HEAD")?;
     let short_after = &after[..after.len().min(7)];

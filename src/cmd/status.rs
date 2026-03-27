@@ -10,6 +10,8 @@ pub fn run(json: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
+    let (staged, modified, untracked) = git::working_tree_status();
+
     if json {
         let is_trunk = state.is_trunk(&current);
         let children = state.children_of(&current);
@@ -28,6 +30,9 @@ pub fn run(json: bool) -> Result<()> {
                     "commits": 0_usize,
                     "children": children,
                     "needs_restack": false,
+                    "staged_files": staged,
+                    "modified_files": modified,
+                    "untracked_files": untracked,
                 })
             );
             return Ok(());
@@ -88,6 +93,9 @@ pub fn run(json: bool) -> Result<()> {
                 "commits": commit_count,
                 "children": children,
                 "needs_restack": needs_restack,
+                "staged_files": staged,
+                "modified_files": modified,
+                "untracked_files": untracked,
             })
         );
         return Ok(());
@@ -108,6 +116,20 @@ pub fn run(json: bool) -> Result<()> {
             for child in &children {
                 eprintln!("  {}", ui::branch_display(child, false));
             }
+        }
+        // Working tree for trunk
+        if staged > 0 || modified > 0 || untracked > 0 {
+            let mut parts = Vec::new();
+            if staged > 0 {
+                parts.push(format!("{staged} staged"));
+            }
+            if modified > 0 {
+                parts.push(format!("{modified} modified"));
+            }
+            if untracked > 0 {
+                parts.push(format!("{untracked} untracked"));
+            }
+            ui::info(&format!("Working tree: {}", parts.join(", ")));
         }
         return Ok(());
     }
@@ -203,6 +225,23 @@ pub fn run(json: bool) -> Result<()> {
     if meta.parent_head != parent_actual_head {
         ui::warn("Branch may need restacking — parent has moved.");
         ui::hint("Run `ez restack` to update.");
+    }
+
+    // Working tree status
+    if staged > 0 || modified > 0 || untracked > 0 {
+        let mut parts = Vec::new();
+        if staged > 0 {
+            parts.push(format!("{staged} staged"));
+        }
+        if modified > 0 {
+            parts.push(format!("{modified} modified"));
+        }
+        if untracked > 0 {
+            parts.push(format!("{untracked} untracked"));
+        }
+        ui::info(&format!("Working tree: {}", parts.join(", ")));
+    } else {
+        ui::info("Working tree: clean");
     }
 
     Ok(())

@@ -132,9 +132,47 @@ pub fn cherry(upstream: &str, branch: &str) -> Result<String> {
     run_git(&["cherry", upstream, branch])
 }
 
+/// Stage all tracked modified/deleted files. Uses `git add -u` (NOT `git add -A`)
+/// so untracked files are never accidentally staged by the -a flag.
 pub fn add_all() -> Result<()> {
-    run_git(&["add", "-A"])?;
+    run_git(&["add", "-u"])?;
     Ok(())
+}
+
+/// Return counts of (staged, modified, untracked) files in the working tree.
+pub fn working_tree_status() -> (usize, usize, usize) {
+    let output = run_git(&["status", "--porcelain"]).unwrap_or_default();
+    let mut staged = 0;
+    let mut modified = 0;
+    let mut untracked = 0;
+    for line in output.lines() {
+        if line.len() < 2 {
+            continue;
+        }
+        let index = line.as_bytes()[0];
+        let worktree = line.as_bytes()[1];
+        if line.starts_with("??") {
+            untracked += 1;
+        } else {
+            if index != b' ' && index != b'?' {
+                staged += 1;
+            }
+            if worktree != b' ' && worktree != b'?' {
+                modified += 1;
+            }
+        }
+    }
+    (staged, modified, untracked)
+}
+
+/// List files modified in the working tree (unstaged changes).
+pub fn modified_files() -> Vec<String> {
+    run_git(&["diff", "--name-only"])
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_string())
+        .collect()
 }
 
 /// Stage specific paths.
