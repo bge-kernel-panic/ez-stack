@@ -30,7 +30,6 @@ pub fn install() -> Result<()> {
     }
 
     ui::hint(&format!("Skill installed at {}", skill_path.display()));
-    ui::hint("Commit .claude/skills/ez-workflow/SKILL.md so other agents in this repo can use it");
 
     // Machine output: path to stdout.
     println!("{}", skill_path.display());
