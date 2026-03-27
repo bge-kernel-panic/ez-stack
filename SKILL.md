@@ -191,20 +191,45 @@ open $(ez pr-link)
 
 ## Mutation Receipts
 
-Every mutating command emits a JSON receipt to stderr (dimmed). Agents can parse receipts to verify what happened without running a separate command.
+Every mutating command emits a JSON receipt to stderr (dimmed). Agents SHOULD parse receipts to verify what happened instead of running separate verification commands.
+
+### Receipt format
 
 ```json
 {"cmd":"commit","branch":"feat/auth","before":"abc1234","after":"def5678","files_changed":3,"insertions":42,"deletions":7}
+{"cmd":"amend","branch":"feat/auth","before":"abc1234","after":"ghi9012","files_changed":2,"insertions":10,"deletions":3}
 {"cmd":"sync","branch":"feat/auth","action":"restacked","parent":"main","before":"abc1234","after":"def5678","redundant_commits":0}
 {"cmd":"sync","branch":"feat/old","action":"cleaned","reason":"merged"}
+{"cmd":"restack","branch":"feat/auth","action":"restacked","parent":"main","before":"abc1234","after":"def5678","redundant_commits":1}
 {"cmd":"push","branch":"feat/auth","pr_number":42,"pr_url":"https://github.com/...","created":true}
 {"cmd":"create","branch":"feat/new","parent":"main","head":"abc1234"}
 ```
 
-Key fields:
-- `redundant_commits` > 0 means commits were auto-dropped (already in parent via different path)
-- `created: true` on push means a new PR was created (vs updated)
-- `before`/`after` SHAs let agents detect content drift after restack
+### How agents should use receipts
+
+After any mutating command, parse the last JSON line from stderr to verify the operation:
+
+1. **After commit/amend:** Check `files_changed` matches expected scope. If you only intended to change 2 files but the receipt shows 5, you may have staged unintended changes.
+
+2. **After sync/restack:** Check `redundant_commits`. If > 0, ez auto-dropped commits that were already in the parent branch. This is expected after merges but signals potential branch staleness.
+
+3. **After push:** Check `created` to know if this was a new PR or an update. Use `pr_url` for linking/reporting without a separate `ez pr-link` call.
+
+4. **After create:** The `head` SHA confirms the branch was created at the expected parent tip.
+
+5. **Detecting content drift:** Compare `before`/`after` SHAs in restack receipts. If `before == after`, the restack was a no-op (branch was already up to date despite metadata mismatch).
+
+### Parsing receipts from stderr
+
+Receipts are JSON lines on stderr, mixed with human-readable status messages. To extract them:
+
+```bash
+# Capture stderr separately, filter for JSON lines
+ez commit -am "msg" 2> >(grep '^{' > /tmp/receipt.json)
+# Or in a script:
+OUTPUT=$(ez commit -am "msg" 2>&1)
+RECEIPT=$(echo "$OUTPUT" | grep '^{' | tail -1)
+```
 
 ## Output Format
 
@@ -261,21 +286,29 @@ No need to run `git show --stat` separately.
 ```bash
 # 1. Create a feature branch from a specific base
 ez create feat/my-feature --from main
+# Receipt: {"cmd":"create","branch":"feat/my-feature","parent":"main","head":"abc1234"}
 
 # 2. Make changes, commit specific files (auto-restacks children, shows diff stat)
 ez commit -m "feat: implement my feature" -- src/feature.rs tests/feature_test.rs
+# Receipt: {"cmd":"commit","branch":"feat/my-feature","before":"abc1234","after":"def5678","files_changed":2,...}
+# Verify: files_changed should match the number of files you intended to change
 
 # 3. Self-review: check what the PR will look like
 ez diff --stat
 
 # 4. Push and create PR
 ez push --title "feat: my feature"
+# Receipt: {"cmd":"push","branch":"feat/my-feature","pr_number":42,"pr_url":"...","created":true}
+# Use pr_url from receipt — no need for separate ez pr-link call
 
 # 5. After trunk moves, sync without losing work
 ez sync --autostash
+# Receipt per branch: {"cmd":"sync","action":"restacked","redundant_commits":0,...}
+# If redundant_commits > 0, ez auto-dropped commits already in main
 
 # 6. After PR merges, clean up
 ez sync
+# Receipt: {"cmd":"sync","branch":"feat/my-feature","action":"cleaned","reason":"merged"}
 
 # 7. Check stack state programmatically
 ez log --json | jq '.[] | select(.needs_restack)'
