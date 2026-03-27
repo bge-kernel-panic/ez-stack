@@ -218,6 +218,8 @@ Or just leave it — `ez sync` will clean up worktrees for merged branches autom
 
 | Intent | Command |
 |--------|---------|
+| Install this skill into the current repo | `ez skill install` |
+| Remove this skill from the current repo | `ez skill uninstall` |
 | First-time shell setup | `ez setup --yes` |
 | Update to latest version | `ez update` |
 | Check for updates | `ez update --check` |

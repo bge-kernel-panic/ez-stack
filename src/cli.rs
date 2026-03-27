@@ -346,6 +346,9 @@ Examples:
         yes: bool,
     },
 
+    /// Install or manage the ez-workflow skill for AI agents
+    Skill(SkillArgs),
+
     /// Print shell integration code (used by `ez setup` internally)
     #[command(after_help = "\
 Examples:
@@ -399,4 +402,25 @@ Examples:
 
     /// List all worktrees with their name, branch, and path
     List,
+}
+
+#[derive(Args)]
+pub struct SkillArgs {
+    #[command(subcommand)]
+    pub command: SkillCommands,
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommands {
+    /// Install the ez-workflow skill into this repo's .claude/skills/
+    #[command(after_help = "\
+Examples:
+  ez skill install")]
+    Install,
+
+    /// Remove the ez-workflow skill from this repo
+    #[command(after_help = "\
+Examples:
+  ez skill uninstall")]
+    Uninstall,
 }

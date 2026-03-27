@@ -19,6 +19,7 @@ pub mod push;
 pub mod restack;
 pub mod setup;
 pub mod shell_init;
+pub mod skill;
 pub mod status;
 pub mod submit;
 pub mod sync;

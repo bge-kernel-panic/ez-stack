@@ -28,10 +28,12 @@ Requirements:
 
 ## Install the skill
 
-If your agent supports Skills, install the repo's skill from GitHub:
+Install the ez-workflow skill into the current repo so all agents auto-discover it:
 
 ```bash
-npx skills add https://github.com/rohoswagger/ez-stack --skill ez-workflow
+ez skill install
+# Installs to .claude/skills/ez-workflow/SKILL.md
+# Commit the file so other agents in this repo use it too
 ```
 
 This installs the workflow defined in [`SKILL.md`](./SKILL.md).

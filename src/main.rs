@@ -11,7 +11,7 @@ mod ui;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands, WorktreeCommands};
+use cli::{Cli, Commands, SkillCommands, WorktreeCommands};
 use std::time::Instant;
 
 fn exit_code_for(e: &anyhow::Error) -> i32 {
@@ -180,6 +180,10 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Pr => cmd::pr_view::run(),
         Commands::Update { version, check } => cmd::update::run(version.as_deref(), check),
         Commands::Setup { yes } => cmd::setup::run(yes),
+        Commands::Skill(args) => match args.command {
+            SkillCommands::Install => cmd::skill::install(),
+            SkillCommands::Uninstall => cmd::skill::uninstall(),
+        },
         Commands::ShellInit => cmd::shell_init::run(),
         Commands::Worktree(args) => match args.command {
             WorktreeCommands::Create { name, from } => {
