@@ -458,6 +458,48 @@ pub fn worktree_prune() -> Result<()> {
     Ok(())
 }
 
+/// Resolve the main worktree root path.
+/// Uses the first entry from `git worktree list` which is always the main worktree.
+pub fn main_worktree_root() -> Result<String> {
+    let worktrees = worktree_list()?;
+    worktrees
+        .first()
+        .map(|wt| wt.path.clone())
+        .ok_or_else(|| anyhow::anyhow!("could not determine main worktree root"))
+}
+
+/// Compute the `.worktrees/<name>` path relative to the main worktree root.
+pub fn worktree_path(name: &str) -> Result<String> {
+    let root = main_worktree_root()?;
+    Ok(format!("{root}/.worktrees/{name}"))
+}
+
+/// Run `git -C <dir> status --porcelain` and return counts of (staged, modified, untracked).
+pub fn working_tree_status_at(dir: &str) -> (usize, usize, usize) {
+    let output = run_git(&["-C", dir, "status", "--porcelain"]).unwrap_or_default();
+    let mut staged = 0;
+    let mut modified = 0;
+    let mut untracked = 0;
+    for line in output.lines() {
+        if line.len() < 2 {
+            continue;
+        }
+        let index = line.as_bytes()[0];
+        let worktree = line.as_bytes()[1];
+        if line.starts_with("??") {
+            untracked += 1;
+        } else {
+            if index != b' ' && index != b'?' {
+                staged += 1;
+            }
+            if worktree != b' ' && worktree != b'?' {
+                modified += 1;
+            }
+        }
+    }
+    (staged, modified, untracked)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

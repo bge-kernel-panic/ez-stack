@@ -6,6 +6,7 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     draft: bool,
     title: Option<&str>,
@@ -13,9 +14,36 @@ pub fn run(
     body_file: Option<&str>,
     base_override: Option<&str>,
     stack: bool,
+    stage_all: bool,
+    commit_message: Option<&str>,
 ) -> Result<()> {
     if stack {
         return crate::cmd::submit::run(draft, title, body, body_file);
+    }
+
+    // If -a or -m was provided, do the commit first.
+    if stage_all || commit_message.is_some() {
+        if stage_all {
+            git::add_all()?;
+        }
+        if let Some(msg) = commit_message {
+            if !git::has_staged_changes()? {
+                ui::hint("Stage your changes first:  git add <files>");
+                bail!(EzError::NothingToCommit);
+            }
+            git::commit(msg)?;
+            let current = git::current_branch()?;
+            ui::info(&format!("Committed on `{current}`: {msg}"));
+
+            // Restack children (same as ez commit).
+            let state = StackState::load()?;
+            if state.is_managed(&current) {
+                let children = state.children_of(&current);
+                if !children.is_empty() {
+                    crate::cmd::restack::run()?;
+                }
+            }
+        }
     }
 
     let mut state = StackState::load()?;

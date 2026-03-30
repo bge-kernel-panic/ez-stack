@@ -112,7 +112,8 @@ fn run(cli: Cli) -> Result<()> {
             message,
             all,
             from,
-        } => cmd::create::run(&name, message.as_deref(), all, from.as_deref()),
+            no_worktree,
+        } => cmd::create::run(&name, message.as_deref(), all, from.as_deref(), no_worktree),
         Commands::Commit {
             message,
             all,
@@ -131,6 +132,8 @@ fn run(cli: Cli) -> Result<()> {
             body_file,
             base,
             stack,
+            stage_all,
+            message,
         } => cmd::push::run(
             draft,
             title.as_deref(),
@@ -138,6 +141,8 @@ fn run(cli: Cli) -> Result<()> {
             body_file.as_deref(),
             base.as_deref(),
             stack,
+            stage_all,
+            message.as_deref(),
         ),
         Commands::Submit {
             draft,
@@ -161,12 +166,12 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Top => cmd::navigate::top(),
         Commands::Bottom => cmd::navigate::bottom(),
         Commands::Checkout { name } => cmd::checkout::run(name.as_deref()),
-        Commands::Branch => cmd::branch::run(),
+        Commands::List { json } => cmd::list::run(json),
         Commands::Log { json } => cmd::log::run(json),
         Commands::Status { json } => cmd::status::run(json),
         Commands::Diff { stat, name_only } => cmd::diff::run(stat, name_only),
         Commands::Parent => cmd::parent::run(),
-        Commands::Delete { branch, force } => cmd::delete::run(branch.as_deref(), force),
+        Commands::Delete { branch, force, yes } => cmd::delete::run(branch.as_deref(), force, yes),
         Commands::Move { onto } => cmd::move_branch::run(&onto),
         Commands::Merge { method } => cmd::merge::run(&method),
         Commands::PrEdit {
@@ -190,9 +195,9 @@ fn run(cli: Cli) -> Result<()> {
                 cmd::worktree::create(&name, from.as_deref())
             }
             WorktreeCommands::Delete { name, force, yes } => {
-                cmd::worktree::delete(&name, force, yes)
+                cmd::delete::run(Some(&name), force, yes)
             }
-            WorktreeCommands::List => cmd::worktree::list(),
+            WorktreeCommands::List => cmd::list::run(false),
         },
     }
 }

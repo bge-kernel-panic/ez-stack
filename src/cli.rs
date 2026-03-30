@@ -26,13 +26,14 @@ Examples:
         trunk: Option<String>,
     },
 
-    /// Create a new stacked branch
+    /// Create a new stacked branch (worktree by default)
     #[command(after_help = "\
 Examples:
   ez create feat/auth
   ez create feat/auth -m \"add auth types\"
   ez create feat/auth -am \"add auth types\"
-  ez create feat/auth --from main")]
+  ez create feat/auth --from main
+  ez create feat/auth --no-worktree")]
     Create {
         /// Name for the new branch
         name: String,
@@ -48,6 +49,10 @@ Examples:
         /// Create the branch from this base instead of the current branch (cannot combine with -m)
         #[arg(long, alias = "on", conflicts_with = "message")]
         from: Option<String>,
+
+        /// Create a branch only (no worktree)
+        #[arg(long)]
+        no_worktree: bool,
     },
 
     /// Commit staged changes and auto-restack children
@@ -98,7 +103,8 @@ Examples:
   ez push
   ez push --title \"feat: add auth\" --body \"Adds login/logout.\"
   ez push --draft
-  ez push --stack")]
+  ez push --stack
+  ez push -am \"feat: add auth\"")]
     Push {
         /// Create a draft PR
         #[arg(long)]
@@ -123,6 +129,14 @@ Examples:
         /// Push all branches in the stack (equivalent to ez submit)
         #[arg(long)]
         stack: bool,
+
+        /// Stage all tracked changes before committing (requires -m)
+        #[arg(short = 'a', long = "all", requires = "message")]
+        stage_all: bool,
+
+        /// Commit with this message before pushing
+        #[arg(short = 'm', long)]
+        message: Option<String>,
     },
 
     /// Push and create/update PRs for the entire stack
@@ -216,12 +230,20 @@ Examples:
         json: bool,
     },
 
-    /// List all branches in the stack with PR numbers and worktree paths
-    #[command(after_help = "\
+    /// List all branches with PRs, worktree paths, and working tree state
+    #[command(
+        alias = "branch",
+        after_help = "\
 Examples:
-  ez branch
-  ez branch | grep feat/")]
-    Branch,
+  ez list
+  ez list --json
+  ez branch"
+    )]
+    List {
+        /// Output as JSON to stdout
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Show diff of current branch vs its parent (what the PR reviewer sees)
     #[command(after_help = "\
@@ -246,12 +268,13 @@ Examples:
   git diff $(ez parent)...HEAD --stat")]
     Parent,
 
-    /// Delete a branch and reparent its children
+    /// Delete a branch (and its worktree if present) and reparent its children
     #[command(after_help = "\
 Examples:
   ez delete
   ez delete feat/old-branch
-  ez delete --force")]
+  ez delete --force
+  ez delete --yes")]
     Delete {
         /// Branch to delete (defaults to current branch)
         branch: Option<String>,
@@ -259,6 +282,10 @@ Examples:
         /// Force delete even if not merged
         #[arg(short, long)]
         force: bool,
+
+        /// Skip confirmation when deleting a worktree you are inside
+        #[arg(short, long)]
+        yes: bool,
     },
 
     /// Move (reparent) the current branch onto another branch

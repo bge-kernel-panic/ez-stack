@@ -5,7 +5,13 @@ use crate::git;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(name: &str, message: Option<&str>, all: bool, from: Option<&str>) -> Result<()> {
+pub fn run(
+    name: &str,
+    message: Option<&str>,
+    all: bool,
+    from: Option<&str>,
+    no_worktree: bool,
+) -> Result<()> {
     let mut state = StackState::load()?;
     let current = git::current_branch()?;
 
@@ -51,7 +57,42 @@ pub fn run(name: &str, message: Option<&str>, all: bool, from: Option<&str>) -> 
 
     let parent_head = git::rev_parse(&parent)?;
 
-    if from.is_some() {
+    // Decide whether to create a worktree.
+    // Worktree mode: default when no --from and no --no-worktree.
+    let use_worktree = !no_worktree && from.is_none();
+
+    if use_worktree {
+        // Worktree creation path: create branch + worktree.
+        let wt_path = git::worktree_path(name)?;
+
+        git::create_branch_at(name, &parent_head)?;
+        state.add_branch(name, &parent, &parent_head);
+
+        if let Err(e) = git::worktree_add(&wt_path, name) {
+            // Rollback: remove the branch we just created.
+            let _ = git::delete_branch(name, true);
+            state.remove_branch(name);
+            return Err(e);
+        }
+
+        state.save()?;
+
+        ui::success(&format!(
+            "Created branch `{name}` on top of `{parent}` in worktree `{wt_path}`"
+        ));
+        ui::hint(&format!("cd {wt_path}"));
+
+        ui::receipt(&serde_json::json!({
+            "cmd": "create",
+            "branch": name,
+            "parent": parent,
+            "head": &parent_head[..parent_head.len().min(7)],
+            "worktree": wt_path,
+        }));
+
+        // Print worktree path to stdout for shell cd.
+        println!("{wt_path}");
+    } else if from.is_some() {
         // Create at the tip of --from without switching branches.
         git::create_branch_at(name, &parent_head)?;
         state.add_branch(name, &parent, &parent_head);
@@ -60,20 +101,27 @@ pub fn run(name: &str, message: Option<&str>, all: bool, from: Option<&str>) -> 
             "Created branch `{name}` from `{parent}` (not checked out)"
         ));
         ui::hint(&format!("Run `ez checkout {name}` to switch to it"));
+
+        ui::receipt(&serde_json::json!({
+            "cmd": "create",
+            "branch": name,
+            "parent": parent,
+            "head": &parent_head[..parent_head.len().min(7)],
+        }));
     } else {
-        // Original behavior: create and switch.
+        // --no-worktree: original behavior — create and switch.
         git::create_branch(name)?;
         state.add_branch(name, &parent, &parent_head);
         state.save()?;
         ui::success(&format!("Created branch `{name}` on top of `{parent}`"));
-    }
 
-    ui::receipt(&serde_json::json!({
-        "cmd": "create",
-        "branch": name,
-        "parent": parent,
-        "head": &parent_head[..parent_head.len().min(7)],
-    }));
+        ui::receipt(&serde_json::json!({
+            "cmd": "create",
+            "branch": name,
+            "parent": parent,
+            "head": &parent_head[..parent_head.len().min(7)],
+        }));
+    }
 
     Ok(())
 }

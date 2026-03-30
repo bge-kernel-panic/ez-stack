@@ -72,6 +72,7 @@ src/
     restack.rs     — ez restack
     navigate.rs    — ez up/down/top/bottom
     checkout.rs    — ez checkout
+    list.rs        — ez list (replaces ez branch)
     log.rs         — ez log
     status.rs      — ez status
     delete.rs      — ez delete
@@ -142,6 +143,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.25 | `ez skill install` — bundles SKILL.md into the binary, installs to `.claude/skills/ez-workflow/SKILL.md` in the current repo. Agents in the repo auto-discover the skill. |
 | 0.1.26 | Fix `ez branch` to show trunk, all managed branches, and current branch even if untracked; hint when current branch was created outside ez |
 | 0.1.27 | Fix `-a` flag to use `git add -u` (tracked only, not untracked); hook failure detection (shows which files pre-commit hooks modified); push error messages wrapped with context; `ez status` shows working tree (staged/modified/untracked counts); SKILL.md discoverability improvements |
+| 0.2.0 | Flagship command redesign: `ez create` defaults to worktree (`--no-worktree` for old behavior); `ez list` replaces `ez branch` (adds `--json`, working tree state, worktree paths); `ez delete` auto-detects and removes worktrees; `ez push -am "msg"` for stage+commit+push; `ez worktree create/delete/list` become aliases |
 
 ---
 
