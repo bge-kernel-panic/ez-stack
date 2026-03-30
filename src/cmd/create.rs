@@ -14,6 +14,23 @@ pub fn run(
     no_worktree: bool,
     hook: Option<&str>,
 ) -> Result<()> {
+    // --hook with no value: list available hooks and exit.
+    if hook == Some("") {
+        let available = hooks::list_hooks("post-create");
+        if available.is_empty() {
+            ui::info("No post-create hooks found");
+            ui::hint("Create .ez/hooks/post-create/<name>.md to add hooks");
+        } else {
+            ui::info("Available post-create hooks:");
+            for name in &available {
+                // Print to stdout (machine output, agent can parse).
+                println!("  {name}");
+            }
+            ui::hint("Use: ez create <branch> --hook <name>");
+        }
+        return Ok(());
+    }
+
     let mut state = StackState::load()?;
     let current = git::current_branch()?;
 

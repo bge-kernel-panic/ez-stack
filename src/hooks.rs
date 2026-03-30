@@ -58,7 +58,6 @@ pub fn emit_hook(event: &str, hook_name: Option<&str>) -> bool {
 }
 
 /// List available hooks for an event.
-#[allow(dead_code)]
 pub fn list_hooks(event: &str) -> Vec<String> {
     let dir = match hooks_dir() {
         Some(d) => d.join(event),

@@ -55,8 +55,8 @@ Examples:
         #[arg(long)]
         no_worktree: bool,
 
-        /// Run a specific post-create hook (from .ez/hooks/post-create/<name>.md)
-        #[arg(long)]
+        /// Run a specific post-create hook, or list available hooks (--hook without a name)
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
         hook: Option<String>,
     },
 

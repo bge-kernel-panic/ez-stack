@@ -145,6 +145,8 @@ These features exist specifically to make ez useable by AI agents:
 | 0.1.27 | Fix `-a` flag to use `git add -u` (tracked only, not untracked); hook failure detection (shows which files pre-commit hooks modified); push error messages wrapped with context; `ez status` shows working tree (staged/modified/untracked counts); SKILL.md discoverability improvements |
 | 0.2.0 | Flagship command redesign: `ez create` defaults to worktree (`--no-worktree` for old behavior); `ez list` replaces `ez branch` (adds `--json`, working tree state, worktree paths); `ez delete` auto-detects and removes worktrees; `ez push -am "msg"` for stage+commit+push; `ez worktree create/delete/list` become aliases |
 | 0.2.1 | Declarative hooks: `.ez/hooks/<event>/<name>.md` are markdown instructions printed to agents (not executable scripts). `--hook <name>` selects a specific hook. Events: post-create, pre-push, post-sync, post-delete. Multiple named hooks per event. |
+| 0.2.2 | Version bump (v0.2.1 already published) |
+| 0.2.3 | Progressive hook discovery: `--hook` with no value lists available hooks. Agent flow: `--help` → sees `--hook`, tries `--hook` → gets list, picks one → gets instructions. |
 
 ---
 
