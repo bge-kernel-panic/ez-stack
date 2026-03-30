@@ -10,7 +10,7 @@ Instructions for AI agents working with `ez-stack`.
 
 ```bash
 # First install
-cargo install ez-stack
+pip install ez-stack
 ez setup --yes    # configures shell integration (PATH + worktree auto-cd)
 
 # Update to latest (auto-detects install method)

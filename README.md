@@ -29,7 +29,8 @@ The problem is that `git` doesn't know about stacks. Rebasing, reordering, and k
 
 ```bash
 # Install
-cargo install ez-stack
+pip install ez-stack
+ez setup --yes
 
 # Initialize in any git repo
 cd your-repo
@@ -72,7 +73,7 @@ That installs the instructions from [`SKILL.md`](./SKILL.md), which teaches the 
 ### Quick install check
 
 ```bash
-cargo install ez-stack && ez --version
+pip install ez-stack && ez --version
 ```
 
 ### Key agent patterns
@@ -107,7 +108,7 @@ Install ez-stack, a CLI for stacked PRs on GitHub, and set it up in this repo.
 
 **Steps:**
 
-1. Install the binary: `cargo install ez-stack` (or update: `ez update`)
+1. Install: `pip install ez-stack` (or update: `ez update`)
 2. Configure shell: `ez setup --yes`
 3. Initialize in this repo: `ez init`
 4. Install the skill: `ez skill install` (agents in this repo auto-discover it)
@@ -325,45 +326,21 @@ ez create feat/auth -am "add auth module"
 
 ## Installation
 
-### From crates.io
-
 ```bash
-cargo install ez-stack
+pip install ez-stack
+ez setup --yes
+ez init
 ```
 
-### From source
+That's it. `pip install` gives you the `ez` binary. `ez setup` configures your shell for auto-cd on worktree create/delete/switch. `ez init` initializes stacking in your repo.
 
-```bash
-git clone https://github.com/rohoswagger/ez-stack.git
-cd ez-stack
-cargo install --path .
-```
+### Other install methods
 
-### Install script (recommended)
+Pre-built binaries are also available on the [Releases](https://github.com/rohoswagger/ez-stack/releases) page, or via the install script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rohoswagger/ez-stack/main/install.sh | bash
 ```
-
-To install a specific version:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/rohoswagger/ez-stack/main/install.sh | bash -s -- v0.1.0
-```
-
-### Shell integration (recommended)
-
-After installing the binary, add shell integration to your `.bashrc` or `.zshrc` for auto-cd on worktree create/delete:
-
-```bash
-eval "$(ez shell-init)"
-```
-
-This makes `ez worktree create feat/auth` automatically `cd` into the new worktree, and `ez worktree delete feat/auth` auto-cd back to the repo root. Without the shell integration, use `cd $(ez worktree create feat/auth)`.
-
-### GitHub releases
-
-Pre-built binaries for Linux and macOS are available on the [Releases](https://github.com/rohoswagger/ez-stack/releases) page.
 
 ## Contributing
 
