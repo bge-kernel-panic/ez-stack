@@ -163,6 +163,44 @@ pub fn open_pr_in_browser(branch: &str) -> Result<()> {
 
 /// Get the latest CI run status for a branch.
 /// Returns a short status string: "✓", "✗", "⏳", or "" if no runs found.
+/// Fetch CI status for all branches in one API call.
+/// Returns a map of branch_name → status emoji (✓/✗/⏳).
+/// Uses the most recent run per branch.
+pub fn get_all_ci_statuses() -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let output = run_gh(&[
+        "api",
+        "repos/{owner}/{repo}/actions/runs?per_page=50",
+        "--jq",
+        r#".workflow_runs[] | "\(.head_branch)\t\(.status)\t\(.conclusion)""#,
+    ]);
+    if let Ok(text) = output {
+        for line in text.lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+            let branch = parts[0];
+            let status = parts[1];
+            let conclusion = parts[2];
+            // Only keep the first (most recent) run per branch.
+            if map.contains_key(branch) {
+                continue;
+            }
+            let emoji = match (status, conclusion) {
+                ("completed", "success") => "✓",
+                ("completed", _) => "✗",
+                ("in_progress", _) | ("queued", _) | ("waiting", _) => "⏳",
+                _ => "",
+            };
+            if !emoji.is_empty() {
+                map.insert(branch.to_string(), emoji.to_string());
+            }
+        }
+    }
+    map
+}
+
 pub fn get_ci_status(branch: &str) -> String {
     let output = run_gh(&[
         "run",

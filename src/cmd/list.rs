@@ -67,37 +67,53 @@ pub fn run(json: bool) -> Result<()> {
         })
         .collect();
 
-    // Spawn all external calls in parallel.
-    let handles: Vec<_> = branch_specs
+    // One API call for all CI statuses (instead of N sequential gh calls).
+    let has_any_pr = branch_specs.iter().any(|(_, pr, _, _)| pr.is_some());
+    let ci_handle = thread::spawn(move || {
+        if has_any_pr {
+            github::get_all_ci_statuses()
+        } else {
+            HashMap::new()
+        }
+    });
+
+    // Parallel git calls: age + working tree status per branch.
+    let git_handles: Vec<_> = branch_specs
         .iter()
-        .map(|(name, pr_num, _parent, wt_path)| {
+        .map(|(name, _pr_num, _parent, wt_path)| {
             let name = name.clone();
-            let has_pr = pr_num.is_some();
             let wt = wt_path.clone();
             thread::spawn(move || {
-                let ci = if has_pr {
-                    github::get_ci_status(&name)
-                } else {
-                    String::new()
-                };
                 let age = git::log_oneline_time(&name);
                 let wt_status = wt
                     .as_ref()
                     .map(|p| git::working_tree_status_at(p))
                     .unwrap_or((0, 0, 0));
-                (ci, age, wt_status)
+                (age, wt_status)
             })
         })
         .collect();
 
-    // Trunk age (cheap, no need to parallelize).
+    // Trunk age (runs in parallel with the above).
     let trunk_age = format_age(git::log_oneline_time(&state.trunk));
 
     // Collect results.
-    #[allow(clippy::type_complexity)]
-    let results: Vec<(String, Option<u64>, (usize, usize, usize))> = handles
+    let ci_map = ci_handle.join().unwrap_or_default();
+    let git_results: Vec<(Option<u64>, (usize, usize, usize))> = git_handles
         .into_iter()
-        .map(|h| h.join().unwrap_or((String::new(), None, (0, 0, 0))))
+        .map(|h| h.join().unwrap_or((None, (0, 0, 0))))
+        .collect();
+
+    // Merge into final results.
+    #[allow(clippy::type_complexity)]
+    let results: Vec<(String, Option<u64>, (usize, usize, usize))> = branch_specs
+        .iter()
+        .enumerate()
+        .map(|(i, (name, _, _, _))| {
+            let ci = ci_map.get(name.as_str()).cloned().unwrap_or_default();
+            let (age, wt_status) = git_results[i];
+            (ci, age, wt_status)
+        })
         .collect();
 
     let branch_data: Vec<BranchData> = branch_specs
