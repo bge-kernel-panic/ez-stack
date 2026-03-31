@@ -189,6 +189,41 @@ pub fn has_staged_changes() -> Result<bool> {
     Ok(!success) // exit code 1 means there ARE diffs
 }
 
+pub fn staged_files() -> Result<Vec<String>> {
+    Ok(run_git(&["diff", "--cached", "--name-only"])?
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect())
+}
+
+pub fn staged_files_matching_scope(patterns: &[String]) -> Result<Vec<String>> {
+    if patterns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let normalized: Vec<String> = patterns
+        .iter()
+        .map(|pattern| git_scope_pattern(pattern))
+        .collect();
+    let mut args: Vec<&str> = vec!["diff", "--cached", "--name-only", "--"];
+    args.extend(normalized.iter().map(String::as_str));
+
+    Ok(run_git(&args)?
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect())
+}
+
+fn git_scope_pattern(pattern: &str) -> String {
+    if pattern.starts_with(":(") {
+        pattern.to_string()
+    } else {
+        format!(":(glob){pattern}")
+    }
+}
+
 pub fn fetch(remote: &str) -> Result<()> {
     run_git(&["fetch", remote])?;
     Ok(())
@@ -550,5 +585,14 @@ mod tests {
         let result = parse_worktree_list(input);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn test_git_scope_pattern_uses_glob_magic() {
+        assert_eq!(git_scope_pattern("src/auth/**"), ":(glob)src/auth/**");
+        assert_eq!(
+            git_scope_pattern(":(glob)src/auth/**"),
+            ":(glob)src/auth/**"
+        );
     }
 }

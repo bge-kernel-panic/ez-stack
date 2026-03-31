@@ -1,4 +1,5 @@
 use anyhow::{Result, bail};
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -7,6 +8,13 @@ use std::path::PathBuf;
 use crate::error::EzError;
 use crate::git;
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeMode {
+    Warn,
+    Strict,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BranchMeta {
     pub name: String,
@@ -14,6 +22,10 @@ pub struct BranchMeta {
     pub parent_head: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr_number: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_mode: Option<ScopeMode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +74,14 @@ impl StackState {
         Ok(())
     }
 
-    pub fn add_branch(&mut self, name: &str, parent: &str, parent_head: &str) {
+    pub fn add_branch(
+        &mut self,
+        name: &str,
+        parent: &str,
+        parent_head: &str,
+        scope: Option<Vec<String>>,
+        scope_mode: Option<ScopeMode>,
+    ) {
         self.branches.insert(
             name.to_string(),
             BranchMeta {
@@ -70,6 +89,8 @@ impl StackState {
                 parent: parent.to_string(),
                 parent_head: parent_head.to_string(),
                 pr_number: None,
+                scope,
+                scope_mode,
             },
         );
     }
@@ -187,6 +208,12 @@ impl StackState {
             }
             current = next;
         }
+    }
+}
+
+impl BranchMeta {
+    pub fn effective_scope_mode(&self) -> ScopeMode {
+        self.scope_mode.unwrap_or(ScopeMode::Warn)
     }
 }
 

@@ -6,13 +6,14 @@ mod git;
 #[allow(dead_code)]
 mod github;
 mod hooks;
+mod scope;
 mod stack;
 mod stack_body;
 mod ui;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands, SkillCommands, WorktreeCommands};
+use cli::{Cli, Commands, ScopeCommands, SkillCommands, WorktreeCommands};
 use std::time::Instant;
 
 fn exit_code_for(e: &anyhow::Error) -> i32 {
@@ -114,6 +115,8 @@ fn run(cli: Cli) -> Result<()> {
             all,
             from,
             no_worktree,
+            scope,
+            scope_mode,
             hook,
         } => cmd::create::run(
             &name,
@@ -121,6 +124,8 @@ fn run(cli: Cli) -> Result<()> {
             all,
             from.as_deref(),
             no_worktree,
+            &scope,
+            scope_mode,
             hook.as_deref(),
         ),
         Commands::Commit {
@@ -194,6 +199,12 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Pr => cmd::pr_view::run(),
         Commands::Update { version, check } => cmd::update::run(version.as_deref(), check),
         Commands::Setup { yes } => cmd::setup::run(yes),
+        Commands::Scope(args) => match args.command {
+            ScopeCommands::Show => cmd::scope::show(),
+            ScopeCommands::Add { mode, patterns } => cmd::scope::add(&patterns, mode),
+            ScopeCommands::Set { mode, patterns } => cmd::scope::set(&patterns, mode),
+            ScopeCommands::Clear => cmd::scope::clear(),
+        },
         Commands::Skill(args) => match args.command {
             SkillCommands::Install => cmd::skill::install(),
             SkillCommands::Uninstall => cmd::skill::uninstall(),

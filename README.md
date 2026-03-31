@@ -84,6 +84,19 @@ ez submit                        # pushes all, creates PRs with correct bases
 ez sync                          # cleans up, restacks remaining branches
 ```
 
+## Scope Guard
+
+Keep an agent focused on the files a branch is supposed to touch:
+
+```bash
+ez create feat/auth --scope 'src/auth/**' --scope 'tests/auth/**'
+ez scope show
+ez scope add 'benches/auth/**'
+ez scope set --mode strict 'src/auth/**' 'tests/auth/**'
+```
+
+With scope configured, `ez commit` and `ez push -am` check the staged file set before mutating git state. In `warn` mode they print drift and continue. In `strict` mode they stop.
+
 ## Worktree Hooks
 
 Create `.ez/hooks/post-create/default.md` to give agents setup instructions:
@@ -118,6 +131,15 @@ Use `--hook <name>` for project-specific hooks, or `--hook` alone to list availa
 | `ez commit -m "msg" -- path1 path2` | Stage specific files + commit |
 | `ez commit --if-changed` | No-op if nothing staged |
 | `ez amend` | Amend last commit + restack |
+
+### Scope
+
+| Command | Description |
+|---------|-------------|
+| `ez scope show` | Show the current branch's configured scope |
+| `ez scope add <pattern...>` | Append patterns to the current branch's scope |
+| `ez scope set <pattern...>` | Replace the current branch's scope |
+| `ez scope clear` | Remove scope configuration from the current branch |
 
 ### Syncing
 

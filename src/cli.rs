@@ -1,5 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
+use crate::stack::ScopeMode;
+
 #[derive(Parser)]
 #[command(
     name = "ez",
@@ -30,6 +32,7 @@ Examples:
     #[command(after_help = "\
 Examples:
   ez create feat/auth
+  ez create feat/auth --scope 'src/auth/**'
   ez create feat/auth --hook setup-node
   ez create feat/auth -m \"add auth types\"
   ez create feat/auth -am \"add auth types\"
@@ -54,6 +57,14 @@ Examples:
         /// Create a branch only (no worktree)
         #[arg(long)]
         no_worktree: bool,
+
+        /// Scope pattern for files this branch is intended to touch (repeatable)
+        #[arg(long)]
+        scope: Vec<String>,
+
+        /// Scope enforcement mode when scope is configured
+        #[arg(long, requires = "scope", value_enum)]
+        scope_mode: Option<ScopeMode>,
 
         /// Run a specific post-create hook, or list available hooks (--hook without a name)
         #[arg(long, num_args = 0..=1, default_missing_value = "")]
@@ -381,6 +392,9 @@ Examples:
         yes: bool,
     },
 
+    /// Manage the current branch's scope configuration
+    Scope(ScopeArgs),
+
     /// Install or manage the ez-workflow skill for AI agents
     Skill(SkillArgs),
 
@@ -392,6 +406,57 @@ Examples:
 
     /// Manage git worktrees
     Worktree(WorktreeArgs),
+}
+
+#[derive(Args)]
+pub struct ScopeArgs {
+    #[command(subcommand)]
+    pub command: ScopeCommands,
+}
+
+#[derive(Subcommand)]
+pub enum ScopeCommands {
+    /// Show the current branch's configured scope
+    #[command(after_help = "\
+Examples:
+  ez scope show")]
+    Show,
+
+    /// Add one or more patterns to the current branch's scope
+    #[command(after_help = "\
+Examples:
+  ez scope add 'src/auth/**'
+  ez scope add --mode strict 'tests/auth/**'")]
+    Add {
+        /// Update scope enforcement mode while adding patterns
+        #[arg(long, value_enum)]
+        mode: Option<ScopeMode>,
+
+        /// Scope patterns to add
+        #[arg(required = true)]
+        patterns: Vec<String>,
+    },
+
+    /// Replace the current branch's scope with new patterns
+    #[command(after_help = "\
+Examples:
+  ez scope set 'src/auth/**' 'tests/auth/**'
+  ez scope set --mode strict 'src/auth/**'")]
+    Set {
+        /// Set scope enforcement mode while replacing patterns
+        #[arg(long, value_enum)]
+        mode: Option<ScopeMode>,
+
+        /// Scope patterns to set
+        #[arg(required = true)]
+        patterns: Vec<String>,
+    },
+
+    /// Clear the current branch's scope configuration
+    #[command(after_help = "\
+Examples:
+  ez scope clear")]
+    Clear,
 }
 
 #[derive(Args)]

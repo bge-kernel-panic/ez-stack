@@ -148,6 +148,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.2.2 | Version bump (v0.2.1 already published) |
 | 0.2.3 | Progressive hook discovery: `--hook` with no value lists available hooks. Agent flow: `--help` → sees `--hook`, tries `--hook` → gets list, picks one → gets instructions. |
 | 0.2.4 | Fix squash-merge detection in `ez sync`: adds diff-level check (empty diff against trunk) so squash-merged branches are cleaned up even when `is_ancestor` fails |
+| 0.2.14 | Scope Guard: `ez create --scope ...`, `ez scope show|add|set|clear`, git-backed staged-file scope checks on `ez commit` and `ez push -am`, shared mutation guard path, scope metadata in `ez status --json` and receipts |
 
 ---
 
@@ -184,7 +185,7 @@ These have been discussed and intentionally deferred:
 - **Interactive reorder** — Complex TUI.
 - **`ez co <pr-number>`** — Superseded by `ez checkout <pr-number>` (v0.1.5).
 - **Remove `gh` dependency** — All `gh` usage in `github.rs` could be replaced with direct GitHub API calls via `reqwest` + token. Benefits: smaller binary, works in environments without `gh`, enables GitLab/Bitbucket support. Costs: ~500 lines of HTTP client code, auth management. Keep `gh` for now (auth handling is worth it); abstract when multi-platform support is needed.
-- **Scope-aware stacking** — `ez create --scope "src/auth/**"` stores intent metadata per branch. `ez commit` warns when staged files are outside scope. Foundation (mutation receipts) shipped in v0.1.22; scope routing is the next layer.
+- **Scope routing / auto-splitting** — Now that branch-level Scope Guard exists, the still-deferred version is anything that auto-moves files between branches, suggests sibling branches, or semantically splits work. Keep the shipped feature as pre-mutation intent checking, not ownership automation.
 - **Python wheel distribution** — `pip install ez-stack` for the Python-heavy AI agent ecosystem. Requires building a wheel that bundles the Rust binary.
 
 ---

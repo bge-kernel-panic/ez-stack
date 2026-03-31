@@ -203,6 +203,8 @@ mod tests {
                 parent: "main".to_string(),
                 parent_head: "abc".to_string(),
                 pr_number: Some(1),
+                scope: None,
+                scope_mode: None,
             },
         );
         branches.insert(
@@ -212,6 +214,8 @@ mod tests {
                 parent: "feat/a".to_string(),
                 parent_head: "def".to_string(),
                 pr_number: None,
+                scope: None,
+                scope_mode: None,
             },
         );
         StackState {

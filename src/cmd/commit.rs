@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use crate::cmd::mutation_guard;
 use crate::error::EzError;
 use crate::git;
 use crate::stack::StackState;
@@ -7,65 +8,13 @@ use crate::ui;
 
 pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Result<()> {
     let mut state = StackState::load()?;
-    let current = git::current_branch()?;
-
-    if state.is_trunk(&current) {
-        bail!(EzError::OnTrunk);
-    }
-
-    if !state.is_managed(&current) {
-        bail!(EzError::BranchNotInStack(current));
-    }
-
-    if all && !paths.is_empty() {
-        bail!(EzError::UserMessage(
-            "cannot combine --all (-a) with path arguments\n  → Use `ez commit -am \"msg\"` to stage everything, or `ez commit -m \"msg\" -- <paths>` to stage specific files".to_string()
-        ));
-    }
-
-    if !paths.is_empty() {
-        git::add_paths(paths)?;
-    } else if all {
-        git::add_all()?;
-    }
-
-    // --if-changed: silently succeed if nothing to commit.
-    if if_changed && !git::has_staged_changes()? {
+    let Some(outcome) = mutation_guard::commit_with_guard(message, all, if_changed, paths)? else {
         return Ok(());
-    }
+    };
 
-    if !git::has_staged_changes()? {
-        bail!(EzError::NothingToCommit);
-    }
-
-    let before = git::rev_parse("HEAD")?;
-
-    // Snapshot modified files before commit so we can detect hook changes on failure.
-    let pre_modified = git::modified_files();
-
-    if let Err(e) = git::commit(message) {
-        // Check if pre-commit hooks modified files.
-        let post_modified = git::modified_files();
-        let hook_changed: Vec<&String> = post_modified
-            .iter()
-            .filter(|f| !pre_modified.contains(f))
-            .collect();
-        if !hook_changed.is_empty() {
-            ui::warn(&format!(
-                "Pre-commit hook modified {} file(s):",
-                hook_changed.len()
-            ));
-            for f in &hook_changed {
-                eprintln!("  {f}");
-            }
-            ui::hint(
-                "Re-stage and retry: `ez commit -am \"...\"` or `git add -u && ez commit -m \"...\"`",
-            );
-        }
-        return Err(e);
-    }
-
-    let after = git::rev_parse("HEAD")?;
+    let current = outcome.current;
+    let before = outcome.before;
+    let after = outcome.after;
     let short_after = &after[..after.len().min(7)];
     let subject = message.lines().next().unwrap_or(message);
     ui::success(&format!(
@@ -73,7 +22,6 @@ pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Resu
     ));
 
     // Show diff stat so agents can verify what was committed.
-    let (files, ins, del) = git::diff_stat_numbers();
     if let Ok(stat) = git::show_stat_head() {
         let stat = stat.trim();
         if !stat.is_empty() {
@@ -87,9 +35,13 @@ pub fn run(message: &str, all: bool, if_changed: bool, paths: &[String]) -> Resu
         "branch": current,
         "before": &before[..before.len().min(7)],
         "after": short_after,
-        "files_changed": files,
-        "insertions": ins,
-        "deletions": del,
+        "files_changed": outcome.files_changed,
+        "insertions": outcome.insertions,
+        "deletions": outcome.deletions,
+        "scope_defined": outcome.scope.scope_defined,
+        "scope_mode": outcome.scope.scope_mode,
+        "out_of_scope_count": outcome.scope.out_of_scope_files.len(),
+        "out_of_scope_files": outcome.scope.out_of_scope_files,
     }));
 
     // Auto-restack children so they stay on top of the new HEAD.

@@ -14,6 +14,15 @@ This is the full command reference. For the core workflow, see [SKILL.md](SKILL.
 | Amend last commit | `ez amend` |
 | Amend with new message | `ez amend -m "new msg"` |
 
+## Scope Guard
+
+| Intent | Command |
+|--------|---------|
+| Show current branch scope | `ez scope show` |
+| Add patterns to scope | `ez scope add 'src/auth/**' 'tests/auth/**'` |
+| Replace scope | `ez scope set --mode strict 'src/auth/**'` |
+| Clear scope | `ez scope clear` |
+
 ## Diffing and Inspecting
 
 | Intent | Command |
@@ -81,5 +90,11 @@ Every mutating command emits JSON to stderr:
 | push | `pr_number`, `pr_url`, `created` |
 | create | `branch`, `parent`, `worktree` |
 | delete | `branch`, `worktree`, `reparented_children` |
+
+Commit and push receipts also include scope fields when relevant:
+- `scope_defined`
+- `scope_mode`
+- `out_of_scope_count`
+- `out_of_scope_files`
 
 Parse with: `echo "$OUTPUT" | grep '^{' | tail -1`

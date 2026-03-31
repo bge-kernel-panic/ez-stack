@@ -3,15 +3,18 @@ use anyhow::{Result, bail};
 use crate::error::EzError;
 use crate::git;
 use crate::hooks;
-use crate::stack::StackState;
+use crate::stack::{ScopeMode, StackState};
 use crate::ui;
 
+#[allow(clippy::too_many_arguments)]
 pub fn run(
     name: &str,
     message: Option<&str>,
     all: bool,
     from: Option<&str>,
     no_worktree: bool,
+    scope: &[String],
+    scope_mode: Option<ScopeMode>,
     hook: Option<&str>,
 ) -> Result<()> {
     // --hook with no value: list available hooks and exit.
@@ -75,6 +78,12 @@ pub fn run(
     }
 
     let parent_head = git::rev_parse(&parent)?;
+    let scope = normalize_scope_patterns(scope);
+    let scope_mode = if scope.is_some() {
+        Some(scope_mode.unwrap_or(ScopeMode::Warn))
+    } else {
+        None
+    };
 
     // Decide whether to create a worktree.
     // Worktree mode: default when no --from and no --no-worktree.
@@ -85,7 +94,7 @@ pub fn run(
         let wt_path = git::worktree_path(name)?;
 
         git::create_branch_at(name, &parent_head)?;
-        state.add_branch(name, &parent, &parent_head);
+        state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
 
         if let Err(e) = git::worktree_add(&wt_path, name) {
             // Rollback: remove the branch we just created.
@@ -110,13 +119,15 @@ pub fn run(
             "parent": parent,
             "head": &parent_head[..parent_head.len().min(7)],
             "worktree": wt_path,
+            "scope_defined": scope.is_some(),
+            "scope_mode": scope_mode.map(scope_mode_str),
         }));
 
         println!("{wt_path}");
     } else if from.is_some() {
         // Create at the tip of --from without switching branches.
         git::create_branch_at(name, &parent_head)?;
-        state.add_branch(name, &parent, &parent_head);
+        state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
         if let Err(e) = state.save() {
             let _ = git::delete_branch(name, true);
             return Err(e);
@@ -130,11 +141,13 @@ pub fn run(
             "branch": name,
             "parent": parent,
             "head": &parent_head[..parent_head.len().min(7)],
+            "scope_defined": scope.is_some(),
+            "scope_mode": scope_mode.map(scope_mode_str),
         }));
     } else {
         // --no-worktree: original behavior — create and switch.
         git::create_branch(name)?;
-        state.add_branch(name, &parent, &parent_head);
+        state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
         if let Err(e) = state.save() {
             let _ = git::delete_branch(name, true);
             return Err(e);
@@ -148,10 +161,35 @@ pub fn run(
             "branch": name,
             "parent": parent,
             "head": &parent_head[..parent_head.len().min(7)],
+            "scope_defined": scope.is_some(),
+            "scope_mode": scope_mode.map(scope_mode_str),
         }));
     }
 
     Ok(())
+}
+
+fn normalize_scope_patterns(patterns: &[String]) -> Option<Vec<String>> {
+    let mut normalized = Vec::new();
+    for pattern in patterns {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() || normalized.iter().any(|p| p == trimmed) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn scope_mode_str(mode: ScopeMode) -> &'static str {
+    match mode {
+        ScopeMode::Warn => "warn",
+        ScopeMode::Strict => "strict",
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +206,8 @@ mod tests {
                 parent: "main".to_string(),
                 parent_head: "abc".to_string(),
                 pr_number: None,
+                scope: None,
+                scope_mode: None,
             },
         );
         StackState {

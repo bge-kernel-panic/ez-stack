@@ -30,6 +30,9 @@ pub fn run(json: bool) -> Result<()> {
                     "commits": 0_usize,
                     "children": children,
                     "needs_restack": false,
+                    "scope": serde_json::Value::Null,
+                    "scope_mode": serde_json::Value::Null,
+                    "scope_defined": false,
                     "staged_files": staged,
                     "modified_files": modified,
                     "untracked_files": untracked,
@@ -79,6 +82,22 @@ pub fn run(json: bool) -> Result<()> {
             Some(pr) => pr.is_draft,
             None => false,
         };
+        let scope_defined = meta.scope.as_ref().is_some_and(|scope| !scope.is_empty());
+        let scope_val = match &meta.scope {
+            Some(scope) => serde_json::json!(scope),
+            None => serde_json::Value::Null,
+        };
+        let scope_mode_val = if scope_defined {
+            serde_json::Value::String(
+                match meta.effective_scope_mode() {
+                    crate::stack::ScopeMode::Warn => "warn",
+                    crate::stack::ScopeMode::Strict => "strict",
+                }
+                .to_string(),
+            )
+        } else {
+            serde_json::Value::Null
+        };
 
         println!(
             "{}",
@@ -93,6 +112,9 @@ pub fn run(json: bool) -> Result<()> {
                 "commits": commit_count,
                 "children": children,
                 "needs_restack": needs_restack,
+                "scope": scope_val,
+                "scope_mode": scope_mode_val,
+                "scope_defined": scope_defined,
                 "staged_files": staged,
                 "modified_files": modified,
                 "untracked_files": untracked,
@@ -151,6 +173,19 @@ pub fn run(json: bool) -> Result<()> {
         "Parent: {}",
         ui::branch_display(&meta.parent, false)
     ));
+
+    if let Some(scope) = &meta.scope {
+        if !scope.is_empty() {
+            let mode = match meta.effective_scope_mode() {
+                crate::stack::ScopeMode::Warn => "warn",
+                crate::stack::ScopeMode::Strict => "strict",
+            };
+            ui::info(&format!("Scope: {mode} ({} pattern(s))", scope.len()));
+            for pattern in scope {
+                eprintln!("  {pattern}");
+            }
+        }
+    }
 
     // Children
     let children = state.children_of(&current);
@@ -262,10 +297,14 @@ mod tests {
             "commits": 1_usize,
             "children": ["feat/y"],
             "needs_restack": false,
+            "scope": ["src/auth/**"],
+            "scope_mode": "warn",
+            "scope_defined": true,
         });
         assert_eq!(val["branch"], "feat/x");
         assert_eq!(val["pr_number"], 42);
         assert!(val["children"].is_array());
         assert_eq!(val["needs_restack"], false);
+        assert_eq!(val["scope_defined"], true);
     }
 }

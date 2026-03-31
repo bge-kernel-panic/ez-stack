@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use crate::cmd::mutation_guard;
 use crate::error::EzError;
 use crate::git;
 use crate::github;
@@ -21,19 +22,27 @@ pub fn run(
         return crate::cmd::submit::run(draft, title, body, body_file);
     }
 
+    let mut commit_scope_defined = false;
+    let mut commit_scope_mode: Option<String> = None;
+    let mut commit_out_of_scope_files: Vec<String> = Vec::new();
+
     // If -a or -m was provided, do the commit first.
     if stage_all || commit_message.is_some() {
-        if stage_all {
-            git::add_all()?;
-        }
         if let Some(msg) = commit_message {
-            if !git::has_staged_changes()? {
-                ui::hint("Stage your changes first:  git add <files>");
-                bail!(EzError::NothingToCommit);
-            }
-            git::commit(msg)?;
-            let current = git::current_branch()?;
+            let outcome = mutation_guard::commit_with_guard(msg, stage_all, false, &[])?
+                .expect("commit_with_guard returns Some when --if-changed is false");
+            commit_scope_defined = outcome.scope.scope_defined;
+            commit_scope_mode = outcome.scope.scope_mode.clone();
+            commit_out_of_scope_files = outcome.scope.out_of_scope_files.clone();
+            let current = outcome.current;
             ui::info(&format!("Committed on `{current}`: {msg}"));
+
+            if let Ok(stat) = git::show_stat_head() {
+                let stat = stat.trim();
+                if !stat.is_empty() {
+                    eprintln!("{stat}");
+                }
+            }
 
             // Restack children (same as ez commit).
             let state = StackState::load()?;
@@ -107,6 +116,10 @@ pub fn run(
         "pr_number": pr_number,
         "pr_url": pr_url,
         "created": !had_pr_before,
+        "scope_defined": commit_scope_defined,
+        "scope_mode": commit_scope_mode,
+        "out_of_scope_count": commit_out_of_scope_files.len(),
+        "out_of_scope_files": commit_out_of_scope_files,
     }));
 
     Ok(())
