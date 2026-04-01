@@ -221,6 +221,20 @@ impl BranchMeta {
 mod tests {
     use super::*;
 
+    fn sample_state() -> StackState {
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/a", "main", "aaa", None, None);
+        state.add_branch("feat/b", "feat/a", "bbb", None, None);
+        state.add_branch(
+            "feat/c",
+            "feat/a",
+            "ccc",
+            Some(vec!["src/**".to_string()]),
+            Some(ScopeMode::Strict),
+        );
+        state
+    }
+
     #[test]
     fn test_meta_dir_ends_with_ez() {
         // The test suite runs inside the ez-stack git repo, so meta_dir() will
@@ -236,6 +250,58 @@ mod tests {
         assert!(
             parent.ends_with(".git"),
             "meta_dir() parent must be .git, got: {parent:?}"
+        );
+    }
+
+    #[test]
+    fn topo_order_path_and_stack_navigation_follow_parent_links() {
+        let state = sample_state();
+        let order = state.topo_order();
+
+        assert!(order.contains(&"feat/a".to_string()));
+        assert!(order.contains(&"feat/b".to_string()));
+        assert!(order.contains(&"feat/c".to_string()));
+        assert!(
+            order.iter().position(|b| b == "feat/a") < order.iter().position(|b| b == "feat/b")
+        );
+        assert!(
+            order.iter().position(|b| b == "feat/a") < order.iter().position(|b| b == "feat/c")
+        );
+
+        assert_eq!(
+            state.path_to_trunk("feat/b"),
+            vec![
+                "feat/b".to_string(),
+                "feat/a".to_string(),
+                "main".to_string()
+            ]
+        );
+        assert_eq!(state.stack_bottom("feat/b"), "feat/a");
+        assert_eq!(state.stack_top("feat/a"), "feat/b");
+    }
+
+    #[test]
+    fn children_and_scope_mode_helpers_work() {
+        let state = sample_state();
+        assert_eq!(
+            state.children_of("feat/a"),
+            vec!["feat/b".to_string(), "feat/c".to_string()]
+        );
+        assert!(state.is_managed("feat/b"));
+        assert!(!state.is_managed("scratch"));
+        assert_eq!(
+            state
+                .get_branch("feat/c")
+                .expect("branch")
+                .effective_scope_mode(),
+            ScopeMode::Strict
+        );
+        assert_eq!(
+            state
+                .get_branch("feat/a")
+                .expect("branch")
+                .effective_scope_mode(),
+            ScopeMode::Warn
         );
     }
 }

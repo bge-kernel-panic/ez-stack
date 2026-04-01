@@ -25,24 +25,31 @@ fn mark_setup_done() -> Result<()> {
 }
 
 fn detect_shell() -> Option<String> {
-    std::env::var("SHELL").ok().and_then(|s| {
-        let name = s.rsplit('/').next().unwrap_or(&s).to_string();
-        match name.as_str() {
-            "bash" | "zsh" | "fish" => Some(name),
-            _ => None,
-        }
-    })
+    std::env::var("SHELL")
+        .ok()
+        .and_then(|s| detect_shell_name(&s).map(str::to_string))
+}
+
+fn detect_shell_name(shell: &str) -> Option<&str> {
+    let name = shell.rsplit('/').next().unwrap_or(shell);
+    match name {
+        "bash" | "zsh" | "fish" => Some(name),
+        _ => None,
+    }
 }
 
 fn rc_file_for(shell: &str) -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    let home = PathBuf::from(home);
+    rc_file_for_home(shell, PathBuf::from(home), None)
+}
+
+fn rc_file_for_home(shell: &str, home: PathBuf, bashrc_exists: Option<bool>) -> Option<PathBuf> {
     match shell {
         "zsh" => Some(home.join(".zshrc")),
         "bash" => {
-            // Prefer .bashrc, fall back to .bash_profile on macOS.
             let bashrc = home.join(".bashrc");
-            if bashrc.exists() {
+            let exists = bashrc_exists.unwrap_or_else(|| bashrc.exists());
+            if exists {
                 Some(bashrc)
             } else {
                 Some(home.join(".bash_profile"))
@@ -65,6 +72,31 @@ fn path_export_line(shell: &str, install_dir: &str) -> String {
         "fish" => format!("fish_add_path {install_dir}"),
         _ => format!(r#"export PATH="{install_dir}:$PATH""#),
     }
+}
+
+fn planned_setup_lines(
+    shell: &str,
+    install_dir: Option<&str>,
+    path_env: &str,
+    rc_content: &str,
+) -> Vec<String> {
+    let mut lines_to_add: Vec<String> = Vec::new();
+
+    if let Some(install_dir) = install_dir {
+        let in_path = path_env.split(':').any(|p| p == install_dir);
+        let already_in_rc = rc_content.contains(install_dir);
+        if !in_path && !already_in_rc {
+            lines_to_add.push(path_export_line(shell, install_dir));
+        }
+    }
+
+    let init_line = shell_init_line(shell);
+    let already_has_init = rc_content.contains("ez shell-init");
+    if !already_has_init {
+        lines_to_add.push(init_line);
+    }
+
+    lines_to_add
 }
 
 pub fn run(yes: bool) -> Result<()> {
@@ -90,29 +122,15 @@ pub fn run(yes: bool) -> Result<()> {
     // Read existing rc file content (or empty if it doesn't exist).
     let rc_content = std::fs::read_to_string(&rc_path).unwrap_or_default();
 
-    let mut lines_to_add: Vec<String> = Vec::new();
-
-    // Check if PATH needs updating (binary not in a standard PATH location).
-    let exe_path = std::env::current_exe().ok();
-    if let Some(ref exe) = exe_path {
-        if let Some(install_dir) = exe.parent().and_then(|p| p.to_str()) {
-            let in_path = std::env::var("PATH")
-                .unwrap_or_default()
-                .split(':')
-                .any(|p| p == install_dir);
-            let already_in_rc = rc_content.contains(install_dir);
-            if !in_path && !already_in_rc {
-                lines_to_add.push(path_export_line(&shell, install_dir));
-            }
-        }
-    }
-
-    // Check if shell-init is already configured.
-    let init_line = shell_init_line(&shell);
-    let already_has_init = rc_content.contains("ez shell-init");
-    if !already_has_init {
-        lines_to_add.push(init_line.clone());
-    }
+    let install_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().and_then(|p| p.to_str().map(str::to_string)));
+    let lines_to_add = planned_setup_lines(
+        &shell,
+        install_dir.as_deref(),
+        &std::env::var("PATH").unwrap_or_default(),
+        &rc_content,
+    );
 
     if lines_to_add.is_empty() {
         ui::success(&format!("Shell already configured in {rc_display}"));
@@ -151,4 +169,53 @@ pub fn run(yes: bool) -> Result<()> {
     ui::hint(&format!("Restart your shell or run: source {rc_display}"));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_shell_name_accepts_supported_shells_only() {
+        assert_eq!(detect_shell_name("/bin/zsh"), Some("zsh"));
+        assert_eq!(detect_shell_name("/usr/local/bin/bash"), Some("bash"));
+        assert_eq!(detect_shell_name("fish"), Some("fish"));
+        assert_eq!(detect_shell_name("/bin/tcsh"), None);
+    }
+
+    #[test]
+    fn rc_file_for_home_picks_expected_shell_config() {
+        let home = PathBuf::from("/tmp/home");
+        assert_eq!(
+            rc_file_for_home("zsh", home.clone(), None),
+            Some(PathBuf::from("/tmp/home/.zshrc"))
+        );
+        assert_eq!(
+            rc_file_for_home("fish", home.clone(), None),
+            Some(PathBuf::from("/tmp/home/.config/fish/config.fish"))
+        );
+        assert_eq!(
+            rc_file_for_home("bash", home.clone(), Some(true)),
+            Some(PathBuf::from("/tmp/home/.bashrc"))
+        );
+        assert_eq!(
+            rc_file_for_home("bash", home, Some(false)),
+            Some(PathBuf::from("/tmp/home/.bash_profile"))
+        );
+    }
+
+    #[test]
+    fn planned_setup_lines_adds_only_missing_lines() {
+        assert_eq!(
+            planned_setup_lines("zsh", Some("/bin/ez"), "", ""),
+            vec![
+                r#"export PATH="/bin/ez:$PATH""#.to_string(),
+                r#"eval "$(ez shell-init)""#.to_string()
+            ]
+        );
+        assert_eq!(
+            planned_setup_lines("fish", Some("/bin/ez"), "/bin/ez:/usr/bin", "ez shell-init"),
+            Vec::<String>::new()
+        );
+    }
 }

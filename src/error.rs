@@ -59,3 +59,37 @@ pub enum EzError {
     #[error("{0}")]
     UserMessage(String),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn error_messages_include_actionable_hints() {
+        assert!(
+            EzError::NotInitialized
+                .to_string()
+                .contains("run `ez init` first")
+        );
+        assert!(
+            EzError::BranchNotInStack("feat/x".into())
+                .to_string()
+                .contains("stack metadata")
+        );
+        assert!(
+            EzError::NothingToCommit
+                .to_string()
+                .contains("Preferred: `ez commit -m")
+        );
+        assert!(
+            EzError::StaleRemoteRef("feat/x".into())
+                .to_string()
+                .contains("git fetch origin feat/x")
+        );
+        assert!(
+            EzError::GhError("boom".into())
+                .to_string()
+                .contains("gh auth status")
+        );
+    }
+}

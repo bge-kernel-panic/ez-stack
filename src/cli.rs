@@ -526,3 +526,73 @@ Examples:
   ez skill uninstall")]
     Uninstall,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn parses_commit_with_paths_after_double_dash() {
+        let cli = Cli::try_parse_from([
+            "ez",
+            "commit",
+            "-m",
+            "fix: parser",
+            "--",
+            "src/main.rs",
+            "src/lib.rs",
+        ])
+        .expect("parse commit");
+
+        match cli.command {
+            Commands::Commit { message, paths, .. } => {
+                assert_eq!(message, vec!["fix: parser".to_string()]);
+                assert_eq!(
+                    paths,
+                    vec!["src/main.rs".to_string(), "src/lib.rs".to_string()]
+                );
+            }
+            _ => panic!("expected commit command"),
+        }
+    }
+
+    #[test]
+    fn parses_create_scope_mode_and_from_alias() {
+        let cli = Cli::try_parse_from([
+            "ez",
+            "create",
+            "feat/auth",
+            "--on",
+            "main",
+            "--scope",
+            "src/auth/**",
+            "--scope-mode",
+            "strict",
+        ])
+        .expect("parse create");
+
+        match cli.command {
+            Commands::Create {
+                from,
+                scope,
+                scope_mode,
+                ..
+            } => {
+                assert_eq!(from.as_deref(), Some("main"));
+                assert_eq!(scope, vec!["src/auth/**".to_string()]);
+                assert_eq!(scope_mode, Some(ScopeMode::Strict));
+            }
+            _ => panic!("expected create command"),
+        }
+    }
+
+    #[test]
+    fn parses_branch_alias_to_list() {
+        let cli = Cli::try_parse_from(["ez", "branch"]).expect("parse branch alias");
+        match cli.command {
+            Commands::List { json } => assert!(!json),
+            _ => panic!("expected list command"),
+        }
+    }
+}

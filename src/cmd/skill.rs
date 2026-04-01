@@ -7,7 +7,11 @@ const SKILL_CONTENT: &str = include_str!("../../SKILL.md");
 
 fn skill_dir() -> Result<PathBuf> {
     let root = crate::git::repo_root()?;
-    Ok(PathBuf::from(root).join(".claude/skills/ez-workflow"))
+    Ok(skill_dir_from_root(&root))
+}
+
+fn skill_dir_from_root(root: &str) -> PathBuf {
+    PathBuf::from(root).join(".claude/skills/ez-workflow")
 }
 
 pub fn install() -> Result<()> {
@@ -48,4 +52,17 @@ pub fn uninstall() -> Result<()> {
     ui::hint("Remove .claude/skills/ez-workflow/ from version control if committed");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skill_dir_from_root_appends_expected_relative_path() {
+        assert_eq!(
+            skill_dir_from_root("/repo"),
+            PathBuf::from("/repo/.claude/skills/ez-workflow")
+        );
+    }
 }

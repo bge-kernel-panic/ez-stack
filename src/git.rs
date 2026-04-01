@@ -606,6 +606,9 @@ pub fn working_tree_status_at(dir: &str) -> (usize, usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{
+        CwdGuard, PathGuard, init_git_repo, install_fake_bin, take_env_lock, write_file,
+    };
 
     #[test]
     fn test_has_uncommitted_parses_dirty() {
@@ -653,6 +656,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_shortstat_handles_partial_and_empty_sections() {
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 3 insertions(+)"),
+            (1, 3, 0)
+        );
+        assert_eq!(
+            parse_shortstat(" 2 files changed, 4 deletions(-)"),
+            (2, 0, 4)
+        );
+        assert_eq!(parse_shortstat(""), (0, 0, 0));
+    }
+
+    #[test]
     fn test_parse_conflicting_files_extracts_merge_conflict_paths() {
         let stderr = "\
 Rebasing (1/6)\n\
@@ -667,5 +683,181 @@ CONFLICT (modify/delete): src/old.ts deleted in HEAD and modified in abc123.\n";
                 "src/old.ts".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn staged_files_matching_scope_short_circuits_empty_patterns() {
+        assert_eq!(
+            staged_files_matching_scope(&[]).expect("empty scope should succeed"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn rebase_onto_aborts_and_returns_conflict_details() {
+        let _guard = take_env_lock();
+        let log_dir = crate::test_support::temp_dir("git-rebase-conflict");
+        let log_path = log_dir.join("calls.log");
+        let fake_dir = install_fake_bin(
+            "git-rebase-conflict-bin",
+            "git",
+            &format!(
+                r#"#!/bin/sh
+if [ "$1" = "rebase" ] && [ "$2" = "--onto" ]; then
+  echo "CONFLICT (content): Merge conflict in src/lib.rs" >&2
+  exit 1
+fi
+if [ "$1" = "rebase" ] && [ "$2" = "--abort" ]; then
+  echo abort >> "{}"
+  exit 0
+fi
+exit 0
+"#,
+                log_path.display()
+            ),
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let outcome = rebase_onto("main", "old-base", "feature").expect("conflict result");
+        assert_eq!(
+            outcome,
+            RebaseOutcome::Conflict(RebaseConflict {
+                conflicting_files: vec!["src/lib.rs".to_string()],
+                stderr: "CONFLICT (content): Merge conflict in src/lib.rs".to_string(),
+            })
+        );
+        assert_eq!(
+            std::fs::read_to_string(log_path).expect("abort log"),
+            "abort\n"
+        );
+    }
+
+    #[test]
+    fn fetch_surfaces_git_stderr_from_failed_subprocess() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "git-fetch-fail",
+            "git",
+            r#"#!/bin/sh
+echo "fatal: simulated fetch failure" >&2
+exit 1
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let err = fetch("origin").expect_err("fetch should fail");
+        assert!(
+            err.to_string().contains("fatal: simulated fetch failure"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn has_staged_changes_treats_exit_code_one_as_dirty() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "git-diff-quiet",
+            "git",
+            r#"#!/bin/sh
+if [ "$1" = "diff" ] && [ "$2" = "--cached" ] && [ "$3" = "--quiet" ]; then
+  exit 1
+fi
+exit 0
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        assert!(has_staged_changes().expect("staged changes"));
+    }
+
+    #[test]
+    fn repo_and_branch_helpers_work_in_real_repo() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("git-basics");
+        let _cwd = CwdGuard::enter(&repo);
+
+        assert!(is_repo());
+        assert_eq!(
+            std::fs::canonicalize(repo_root().expect("root")).expect("canonicalized root"),
+            std::fs::canonicalize(&repo).expect("canonicalized repo")
+        );
+        assert_eq!(current_branch().expect("branch"), "main");
+        assert_eq!(default_branch().expect("default"), "main");
+        assert!(branch_exists("main"));
+        assert_eq!(branch_list().expect("branches"), vec!["main".to_string()]);
+    }
+
+    #[test]
+    fn staging_and_status_helpers_track_real_changes() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("git-staging");
+        let _cwd = CwdGuard::enter(&repo);
+
+        write_file(&repo, "tracked.txt", "changed\n");
+        write_file(&repo, "new.txt", "new\n");
+
+        assert_eq!(modified_files(), vec!["tracked.txt".to_string()]);
+        let (staged, modified, untracked) = working_tree_status();
+        assert_eq!(untracked, 1);
+        assert_eq!(staged + modified, 1);
+
+        add_paths(&["tracked.txt".to_string()]).expect("stage tracked");
+        assert!(has_staged_changes().expect("staged"));
+        assert_eq!(
+            staged_files().expect("staged files"),
+            vec!["tracked.txt".to_string()]
+        );
+        assert_eq!(working_tree_status(), (1, 0, 1));
+
+        add_all().expect("stage tracked changes");
+        assert_eq!(
+            staged_files().expect("staged files"),
+            vec!["tracked.txt".to_string()]
+        );
+    }
+
+    #[test]
+    fn branch_log_and_worktree_helpers_operate_on_temp_repo() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("git-worktree");
+        let _cwd = CwdGuard::enter(&repo);
+
+        create_branch_at("feat/test", "main").expect("create branch");
+        assert!(branch_exists("feat/test"));
+        checkout("feat/test").expect("checkout feat");
+        write_file(&repo, "feature.txt", "feature\n");
+        add_paths(&["feature.txt".to_string()]).expect("stage feature");
+        commit("feat: add feature").expect("commit");
+
+        let log = log_oneline("main..feat/test", 1).expect("log");
+        assert_eq!(log.len(), 1);
+        assert!(log[0].1.contains("feat: add feature"));
+        assert!(log_oneline_time("feat/test").is_some());
+
+        let wt_path = worktree_path("feat/test").expect("worktree path");
+        assert!(wt_path.ends_with(".worktrees/feat-test"));
+
+        checkout("main").expect("back to main");
+        worktree_add(&wt_path, "feat/test").expect("worktree add");
+
+        let worktrees = worktree_list().expect("worktree list");
+        assert_eq!(worktrees.len(), 2);
+        assert_eq!(
+            std::fs::canonicalize(main_worktree_root().expect("main root"))
+                .expect("canonicalized main root"),
+            std::fs::canonicalize(&repo).expect("canonicalized repo")
+        );
+        assert_eq!(working_tree_status_at(&wt_path), (0, 0, 0));
+        let repo_canonical = std::fs::canonicalize(&repo)
+            .expect("canonical repo")
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(
+            branch_checked_out_elsewhere("feat/test", &repo_canonical).expect("checked elsewhere"),
+            Some(wt_path.clone())
+        );
+
+        worktree_remove_force(&wt_path).expect("remove worktree");
+        worktree_prune().expect("prune");
     }
 }

@@ -173,6 +173,26 @@ fn scope_mode_str(mode: ScopeMode) -> &'static str {
 mod tests {
     use super::*;
     use crate::scope::{ScopeDecision, ScopeReport};
+    use crate::stack::StackState;
+    use crate::test_support::{CwdGuard, cmd_output, init_git_repo, take_env_lock, write_file};
+
+    fn init_managed_feature_repo(
+        name: &str,
+        scope: Option<Vec<String>>,
+        scope_mode: Option<ScopeMode>,
+    ) -> std::path::PathBuf {
+        let repo = init_git_repo(name);
+        let _cwd = CwdGuard::enter(&repo);
+        StackState::new("main".to_string())
+            .save()
+            .expect("save initial state");
+        git::create_branch("feat/test").expect("create feature branch");
+        let parent_head = git::rev_parse("main").expect("parent head");
+        let mut state = StackState::load().expect("load state");
+        state.add_branch("feat/test", "main", &parent_head, scope, scope_mode);
+        state.save().expect("save managed state");
+        repo
+    }
 
     #[test]
     fn receipt_data_marks_no_scope() {
@@ -197,5 +217,119 @@ mod tests {
             receipt.out_of_scope_files,
             vec!["src/billing/b.rs".to_string()]
         );
+    }
+
+    #[test]
+    fn commit_with_guard_rejects_trunk_commits() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("mutation-trunk");
+        let _cwd = CwdGuard::enter(&repo);
+        StackState::new("main".to_string())
+            .save()
+            .expect("save state");
+
+        let err =
+            commit_with_guard("msg", false, false, &[]).expect_err("trunk commit should fail");
+        assert!(matches!(
+            err.downcast_ref::<EzError>(),
+            Some(EzError::OnTrunk)
+        ));
+    }
+
+    #[test]
+    fn commit_with_guard_rejects_unmanaged_branch() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("mutation-unmanaged");
+        let _cwd = CwdGuard::enter(&repo);
+        StackState::new("main".to_string())
+            .save()
+            .expect("save state");
+        git::create_branch("scratch").expect("create scratch");
+
+        let err =
+            commit_with_guard("msg", false, false, &[]).expect_err("unmanaged branch should fail");
+        assert!(matches!(
+            err.downcast_ref::<EzError>(),
+            Some(EzError::BranchNotInStack(name)) if name == "scratch"
+        ));
+    }
+
+    #[test]
+    fn commit_with_guard_if_changed_returns_none_when_nothing_is_staged() {
+        let _guard = take_env_lock();
+        let repo = init_managed_feature_repo("mutation-if-changed", None, None);
+        let _cwd = CwdGuard::enter(&repo);
+
+        let outcome = commit_with_guard("msg", false, true, &[]).expect("guard should succeed");
+        assert!(outcome.is_none());
+    }
+
+    #[test]
+    fn commit_with_guard_rejects_all_plus_paths() {
+        let _guard = take_env_lock();
+        let repo = init_managed_feature_repo("mutation-all-paths", None, None);
+        let _cwd = CwdGuard::enter(&repo);
+
+        let err = commit_with_guard("msg", true, false, &["tracked.txt".to_string()])
+            .expect_err("all plus paths should fail");
+        assert!(
+            err.to_string()
+                .contains("cannot combine --all (-a) with path arguments"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn commit_with_guard_blocks_out_of_scope_files_in_strict_mode() {
+        let _guard = take_env_lock();
+        let repo = init_managed_feature_repo(
+            "mutation-scope-strict",
+            Some(vec!["src/auth/**".to_string()]),
+            Some(ScopeMode::Strict),
+        );
+        let _cwd = CwdGuard::enter(&repo);
+        write_file(&repo, "src/billing/invoice.rs", "pub fn invoice() {}\n");
+
+        let err = commit_with_guard(
+            "feat: wrong scope",
+            false,
+            false,
+            &["src/billing/invoice.rs".to_string()],
+        )
+        .expect_err("strict scope should block out-of-scope commit");
+        assert!(
+            err.to_string()
+                .contains("staged files are outside the scope for `feat/test`"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn commit_with_guard_stages_only_selected_paths() {
+        let _guard = take_env_lock();
+        let repo = init_managed_feature_repo("mutation-selected-paths", None, None);
+        let _cwd = CwdGuard::enter(&repo);
+        write_file(&repo, "selected.txt", "selected\n");
+        write_file(&repo, "ignored.txt", "ignored\n");
+
+        let outcome = commit_with_guard(
+            "feat: add selected file",
+            false,
+            false,
+            &["selected.txt".to_string()],
+        )
+        .expect("commit should succeed")
+        .expect("commit outcome");
+
+        assert_eq!(outcome.files_changed, 1);
+        assert_eq!(
+            cmd_output(
+                &repo,
+                "git",
+                &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
+            ),
+            "selected.txt"
+        );
+        assert_eq!(git::working_tree_status(), (0, 0, 1));
     }
 }

@@ -7,6 +7,15 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
+fn branches_to_submit(path_to_trunk: &[String], trunk: &str) -> Vec<String> {
+    path_to_trunk
+        .iter()
+        .rev()
+        .filter(|b| b.as_str() != trunk)
+        .cloned()
+        .collect()
+}
+
 pub fn run(
     draft: bool,
     title: Option<&str>,
@@ -32,12 +41,7 @@ pub fn run(
     // path_to_trunk returns [current, ..., trunk].
     // We want to iterate bottom-to-top (trunk-side first), skipping trunk itself.
     let path = state.path_to_trunk(&current);
-    let branches_to_submit: Vec<String> = path
-        .iter()
-        .rev()
-        .filter(|b| !state.is_trunk(b))
-        .cloned()
-        .collect();
+    let branches_to_submit = branches_to_submit(&path, &state.trunk);
 
     if branches_to_submit.is_empty() {
         ui::info("No branches to submit.");
@@ -88,4 +92,33 @@ pub fn run(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn branches_to_submit_orders_bottom_to_top_and_skips_trunk() {
+        let path = vec![
+            "feat/c".to_string(),
+            "feat/b".to_string(),
+            "feat/a".to_string(),
+            "main".to_string(),
+        ];
+        assert_eq!(
+            branches_to_submit(&path, "main"),
+            vec![
+                "feat/a".to_string(),
+                "feat/b".to_string(),
+                "feat/c".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn branches_to_submit_handles_trunk_only_path() {
+        let path = vec!["main".to_string()];
+        assert!(branches_to_submit(&path, "main").is_empty());
+    }
 }

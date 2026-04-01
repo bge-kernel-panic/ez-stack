@@ -134,7 +134,7 @@ fn delete_with_worktree(
         .and_then(|p| p.to_str().map(String::from))
         .unwrap_or_default();
 
-    let inside_worktree = current_dir == wt_path || current_dir.starts_with(&format!("{wt_path}/"));
+    let inside_worktree = inside_worktree_path(&current_dir, &wt_path);
 
     if inside_worktree && !yes {
         ui::warn(&format!(
@@ -264,4 +264,29 @@ fn delete_with_worktree(
     }
 
     Ok(())
+}
+
+fn inside_worktree_path(current_dir: &str, worktree_path: &str) -> bool {
+    current_dir == worktree_path || current_dir.starts_with(&format!("{worktree_path}/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inside_worktree_path_matches_exact_and_nested() {
+        assert!(inside_worktree_path(
+            "/repo/.worktrees/feat",
+            "/repo/.worktrees/feat"
+        ));
+        assert!(inside_worktree_path(
+            "/repo/.worktrees/feat/src/app",
+            "/repo/.worktrees/feat"
+        ));
+        assert!(!inside_worktree_path(
+            "/repo/.worktrees/feat-two",
+            "/repo/.worktrees/feat"
+        ));
+    }
 }

@@ -236,6 +236,7 @@ pub fn run(json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stack::StackState;
 
     #[test]
     fn combined_branch_order_appends_unmanaged_locals_once() {
@@ -268,9 +269,59 @@ mod tests {
             "1S 2M 3U; not tracked"
         );
     }
+
+    #[test]
+    fn format_age_handles_boundaries() {
+        assert_eq!(format_age(None), "-");
+        assert_eq!(format_age(Some(59)), "59s");
+        assert_eq!(format_age(Some(60)), "1m");
+        assert_eq!(format_age(Some(3_599)), "59m");
+        assert_eq!(format_age(Some(3_600)), "1h");
+        assert_eq!(format_age(Some(86_400)), "1d");
+    }
+
+    #[test]
+    fn json_entries_include_unmanaged_branch_without_worktree_fields() {
+        let state = StackState::new("main".to_string());
+        let entries = json_entries(
+            &state,
+            "scratch",
+            &[BranchData {
+                name: "scratch".to_string(),
+                is_managed: false,
+                pr_number: None,
+                parent: None,
+                wt_path: None,
+                ci: String::new(),
+                age: None,
+                wt_status: (0, 0, 0),
+            }],
+        );
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0]["branch"], "main");
+        assert_eq!(entries[1]["branch"], "scratch");
+        assert_eq!(entries[1]["is_managed"], false);
+        assert!(entries[1]["ci_status"].is_null());
+        assert!(entries[1]["dev_port"].is_null());
+        assert!(entries[1]["worktree_path"].is_null());
+        assert!(entries[1]["working_tree"].is_null());
+    }
 }
 
 fn run_json(state: &StackState, current: &str, branches: &[BranchData]) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json_entries(state, current, branches))?
+    );
+    Ok(())
+}
+
+fn json_entries(
+    state: &StackState,
+    current: &str,
+    branches: &[BranchData],
+) -> Vec<serde_json::Value> {
     let mut entries = Vec::new();
 
     entries.push(serde_json::json!({
@@ -307,6 +358,5 @@ fn run_json(state: &StackState, current: &str, branches: &[BranchData]) -> Resul
         }));
     }
 
-    println!("{}", serde_json::to_string_pretty(&entries)?);
-    Ok(())
+    entries
 }

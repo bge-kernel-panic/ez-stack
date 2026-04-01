@@ -10,6 +10,8 @@ mod hooks;
 mod scope;
 mod stack;
 mod stack_body;
+#[cfg(test)]
+mod test_support;
 mod ui;
 
 use anyhow::Result;

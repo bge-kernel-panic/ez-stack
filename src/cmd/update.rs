@@ -5,6 +5,24 @@ use crate::ui;
 
 const REPO: &str = "rohoswagger/ez-stack";
 
+fn parse_latest_version_response(body: &str) -> Result<String> {
+    for line in body.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("\"tag_name\"") {
+            if let Some(start) = rest.find('"') {
+                let after = &rest[start + 1..];
+                if let Some(end) = after.find('"') {
+                    return Ok(after[..end].to_string());
+                }
+            }
+        }
+    }
+
+    bail!(
+        "could not parse latest version from GitHub API response\n  → Check https://github.com/{REPO}/releases manually"
+    );
+}
+
 /// Fetch the latest release tag from GitHub API using curl.
 fn fetch_latest_version() -> Result<String> {
     let output = Command::new("curl")
@@ -20,39 +38,22 @@ fn fetch_latest_version() -> Result<String> {
         );
     }
 
-    let body = String::from_utf8_lossy(&output.stdout);
-
-    // Parse tag_name from JSON without a JSON dependency.
-    // Format: "tag_name": "v0.1.11"
-    for line in body.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("\"tag_name\"") {
-            // rest is something like: : "v0.1.11",
-            if let Some(start) = rest.find('"') {
-                let after = &rest[start + 1..];
-                if let Some(end) = after.find('"') {
-                    return Ok(after[..end].to_string());
-                }
-            }
-        }
-    }
-
-    bail!(
-        "could not parse latest version from GitHub API response\n  → Check https://github.com/{REPO}/releases manually"
-    );
+    parse_latest_version_response(&String::from_utf8_lossy(&output.stdout))
 }
 
 /// Detect whether the current binary was installed via cargo or the install script.
 fn detect_install_method() -> InstallMethod {
     let exe = std::env::current_exe().ok();
-    if let Some(path) = exe {
-        let path_str = path.to_string_lossy();
-        // cargo install puts binaries in .cargo/bin/
-        if path_str.contains(".cargo/bin") {
-            return InstallMethod::Cargo;
-        }
+    let exe_path = exe.map(|p| p.to_string_lossy().into_owned());
+    detect_install_method_from_path(exe_path.as_deref())
+}
+
+fn detect_install_method_from_path(path: Option<&str>) -> InstallMethod {
+    if let Some(path_str) = path
+        && path_str.contains(".cargo/bin")
+    {
+        return InstallMethod::Cargo;
     }
-    // Default to script-based install (covers ~/.local/bin and custom paths).
     InstallMethod::Script
 }
 
@@ -125,4 +126,45 @@ pub fn run(target_version: Option<&str>, check_only: bool) -> Result<()> {
 
     ui::success(&format!("Updated to {target}"));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_latest_version_response_extracts_tag_name() {
+        let body = r#"
+        {
+          "name": "release",
+          "tag_name": "v1.2.3",
+          "other": "ignored"
+        }"#;
+        assert_eq!(
+            parse_latest_version_response(body).expect("version"),
+            "v1.2.3"
+        );
+    }
+
+    #[test]
+    fn parse_latest_version_response_errors_when_missing() {
+        let err = parse_latest_version_response("{}").expect_err("should fail");
+        assert!(err.to_string().contains("could not parse latest version"));
+    }
+
+    #[test]
+    fn detect_install_method_from_path_distinguishes_cargo_installs() {
+        assert!(matches!(
+            detect_install_method_from_path(Some("/Users/me/.cargo/bin/ez")),
+            InstallMethod::Cargo
+        ));
+        assert!(matches!(
+            detect_install_method_from_path(Some("/usr/local/bin/ez")),
+            InstallMethod::Script
+        ));
+        assert!(matches!(
+            detect_install_method_from_path(None),
+            InstallMethod::Script
+        ));
+    }
 }

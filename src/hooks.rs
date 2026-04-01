@@ -18,16 +18,47 @@ use crate::ui;
 /// ez prints the hook contents to stderr. The agent reads and follows them.
 fn hooks_dir() -> Option<PathBuf> {
     let root = git::main_worktree_root().ok()?;
-    Some(Path::new(&root).join(".ez/hooks"))
+    Some(hooks_dir_from_root(&root))
+}
+
+fn hooks_dir_from_root(root: &str) -> PathBuf {
+    Path::new(root).join(".ez/hooks")
+}
+
+fn hook_path(root: &str, event: &str, hook_name: Option<&str>) -> PathBuf {
+    let name = hook_name.unwrap_or("default");
+    hooks_dir_from_root(root)
+        .join(event)
+        .join(format!("{name}.md"))
+}
+
+fn list_hook_names(dir: &Path) -> Vec<String> {
+    if !dir.exists() {
+        return vec![];
+    }
+
+    std::fs::read_dir(dir)
+        .ok()
+        .map(|entries| {
+            let mut hooks: Vec<String> = entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let name = e.file_name().to_string_lossy().to_string();
+                    name.strip_suffix(".md").map(|n| n.to_string())
+                })
+                .collect();
+            hooks.sort();
+            hooks
+        })
+        .unwrap_or_default()
 }
 
 /// Get hook content for a specific event and optional hook name.
 /// If hook_name is None, looks for "default.md".
 /// If hook_name is Some, looks for "<name>.md".
 pub fn get_hook(event: &str, hook_name: Option<&str>) -> Option<String> {
-    let dir = hooks_dir()?;
-    let name = hook_name.unwrap_or("default");
-    let hook_path = dir.join(event).join(format!("{name}.md"));
+    let root = git::main_worktree_root().ok()?;
+    let hook_path = hook_path(&root, event, hook_name);
 
     if !hook_path.exists() {
         return None;
@@ -63,21 +94,59 @@ pub fn list_hooks(event: &str) -> Vec<String> {
         Some(d) => d.join(event),
         None => return vec![],
     };
+    list_hook_names(&dir)
+}
 
-    if !dir.exists() {
-        return vec![];
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "ez-hooks-{}-{}-{}",
+            name,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base).expect("create temp dir");
+        base
     }
 
-    std::fs::read_dir(&dir)
-        .ok()
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .filter_map(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    name.strip_suffix(".md").map(|n| n.to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+    #[test]
+    fn hooks_dir_from_root_appends_expected_path() {
+        assert_eq!(
+            hooks_dir_from_root("/repo"),
+            PathBuf::from("/repo/.ez/hooks")
+        );
+    }
+
+    #[test]
+    fn hook_path_uses_default_when_name_missing() {
+        assert_eq!(
+            hook_path("/repo", "post-create", None),
+            PathBuf::from("/repo/.ez/hooks/post-create/default.md")
+        );
+        assert_eq!(
+            hook_path("/repo", "post-create", Some("setup-node")),
+            PathBuf::from("/repo/.ez/hooks/post-create/setup-node.md")
+        );
+    }
+
+    #[test]
+    fn list_hook_names_returns_sorted_markdown_stems_only() {
+        let dir = temp_dir("list");
+        std::fs::write(dir.join("b.md"), "").expect("write b");
+        std::fs::write(dir.join("a.md"), "").expect("write a");
+        std::fs::write(dir.join("notes.txt"), "").expect("write notes");
+
+        assert_eq!(
+            list_hook_names(&dir),
+            vec!["a".to_string(), "b".to_string()]
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

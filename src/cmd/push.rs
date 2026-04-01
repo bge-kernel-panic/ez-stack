@@ -7,6 +7,38 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
+fn stack_ancestors(
+    state: &StackState,
+    branch: &str,
+    repo: &str,
+) -> Vec<crate::stack_body::AncestorPr> {
+    let path = state.path_to_trunk(branch);
+    let len = path.len();
+    if len < 2 {
+        return vec![];
+    }
+
+    path[1..len - 1]
+        .iter()
+        .rev()
+        .map(|b| {
+            let pr_number = state.branches.get(b).and_then(|m| m.pr_number);
+            let pr_url = pr_number.and_then(|n| {
+                if repo.is_empty() {
+                    None
+                } else {
+                    Some(format!("https://github.com/{repo}/pull/{n}"))
+                }
+            });
+            crate::stack_body::AncestorPr {
+                branch: b.clone(),
+                pr_number,
+                pr_url,
+            }
+        })
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     draft: bool,
@@ -139,36 +171,7 @@ pub fn push_or_update_pr(
 ) -> Result<String> {
     // Collect upstream ancestor PRs for the stack section.
     // path_to_trunk returns [branch, ..., trunk]; we want ancestors only.
-    let ancestors: Vec<crate::stack_body::AncestorPr> = {
-        let path = state.path_to_trunk(branch);
-        // path[0] = branch, path[last] = trunk
-        // Slice [1..len-1] gives ancestors (drop current branch and trunk)
-        let repo = github::repo_name().unwrap_or_default();
-        let len = path.len();
-        if len < 2 {
-            vec![]
-        } else {
-            path[1..len - 1]
-                .iter()
-                .rev() // trunk-closest first
-                .map(|b| {
-                    let pr_number = state.branches.get(b).and_then(|m| m.pr_number);
-                    let pr_url = pr_number.and_then(|n| {
-                        if repo.is_empty() {
-                            None
-                        } else {
-                            Some(format!("https://github.com/{}/pull/{}", repo, n))
-                        }
-                    });
-                    crate::stack_body::AncestorPr {
-                        branch: b.clone(),
-                        pr_number,
-                        pr_url,
-                    }
-                })
-                .collect()
-        }
-    };
+    let ancestors = stack_ancestors(state, branch, &github::repo_name().unwrap_or_default());
 
     let existing_pr = github::get_pr_status(branch)?;
 
@@ -248,4 +251,44 @@ pub fn push_or_update_pr(
     };
 
     Ok(pr_url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_ancestors_orders_trunk_closest_first_and_builds_urls() {
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/a", "main", "aaa", None, None);
+        state.add_branch("feat/b", "feat/a", "bbb", None, None);
+        state.add_branch("feat/c", "feat/b", "ccc", None, None);
+        state.get_branch_mut("feat/a").expect("a").pr_number = Some(10);
+        state.get_branch_mut("feat/b").expect("b").pr_number = Some(20);
+
+        let ancestors = stack_ancestors(&state, "feat/c", "org/repo");
+        assert_eq!(ancestors.len(), 2);
+        assert_eq!(ancestors[0].branch, "feat/a");
+        assert_eq!(ancestors[1].branch, "feat/b");
+        assert_eq!(
+            ancestors[0].pr_url.as_deref(),
+            Some("https://github.com/org/repo/pull/10")
+        );
+        assert_eq!(
+            ancestors[1].pr_url.as_deref(),
+            Some("https://github.com/org/repo/pull/20")
+        );
+    }
+
+    #[test]
+    fn stack_ancestors_handles_empty_repo_name() {
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/a", "main", "aaa", None, None);
+        state.add_branch("feat/b", "feat/a", "bbb", None, None);
+        state.get_branch_mut("feat/a").expect("a").pr_number = Some(10);
+
+        let ancestors = stack_ancestors(&state, "feat/b", "");
+        assert_eq!(ancestors.len(), 1);
+        assert!(ancestors[0].pr_url.is_none());
+    }
 }

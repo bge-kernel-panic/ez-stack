@@ -194,7 +194,10 @@ fn scope_mode_str(mode: ScopeMode) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::git;
     use crate::stack::{BranchMeta, StackState};
+    use crate::test_support::{CwdGuard, init_git_repo, take_env_lock};
     use std::collections::HashMap;
 
     fn make_state() -> StackState {
@@ -226,5 +229,67 @@ mod tests {
         // Untracked branches are not valid
         assert!(!state.is_managed("random-branch"));
         assert!(!state.is_trunk("random-branch"));
+    }
+
+    #[test]
+    fn normalize_scope_patterns_trims_dedupes_and_drops_empty_values() {
+        assert_eq!(
+            normalize_scope_patterns(&[
+                " src/auth/** ".to_string(),
+                "".to_string(),
+                "src/auth/**".to_string(),
+                "  ".to_string(),
+                "tests/auth/**".to_string(),
+            ]),
+            Some(vec!["src/auth/**".to_string(), "tests/auth/**".to_string()])
+        );
+        assert_eq!(normalize_scope_patterns(&[" ".to_string()]), None);
+    }
+
+    #[test]
+    fn create_rejects_unmanaged_current_branch_without_from() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("create-unmanaged-current");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+        git::create_branch("scratch").expect("create scratch");
+
+        let err = run("feat/new", None, false, None, true, &[], None, None)
+            .expect_err("unmanaged current branch should fail");
+        assert!(
+            err.to_string()
+                .contains("current branch `scratch` is not tracked by ez"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn create_rejects_unmanaged_from_branch() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("create-unmanaged-from");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+        git::create_branch_at("scratch", "main").expect("create scratch");
+
+        let err = run(
+            "feat/new",
+            None,
+            false,
+            Some("scratch"),
+            true,
+            &[],
+            None,
+            None,
+        )
+        .expect_err("unmanaged --from branch should fail");
+        assert!(
+            err.to_string()
+                .contains("branch `scratch` is not tracked by ez"),
+            "unexpected error: {err:#}"
+        );
     }
 }

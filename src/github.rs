@@ -239,12 +239,12 @@ pub fn get_all_ci_statuses() -> std::collections::HashMap<String, String> {
     if let Ok(text) = output {
         for line in text.lines() {
             let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() < 3 {
+            if parts.len() < 2 {
                 continue;
             }
             let branch = parts[0];
             let status = parts[1];
-            let conclusion = parts[2];
+            let conclusion = parts.get(2).copied().unwrap_or("");
             // Only keep the first (most recent) run per branch.
             if map.contains_key(branch) {
                 continue;
@@ -310,6 +310,64 @@ pub fn set_pr_ready(pr_number: u64, ready: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{PathGuard, install_fake_bin, take_env_lock, temp_dir};
+
+    fn install_fake_gh(name: &str) -> std::path::PathBuf {
+        install_fake_bin(
+            name,
+            "gh",
+            r#"#!/bin/sh
+cmd="$1"
+shift
+
+case "$cmd" in
+  repo)
+    echo "org/repo"
+    ;;
+  pr)
+    sub="$1"
+    shift
+    case "$sub" in
+      create)
+        echo "https://github.com/org/repo/pull/77"
+        ;;
+      edit)
+        exit 0
+        ;;
+      view)
+        if [ "$1" = "--web" ]; then
+          exit 0
+        fi
+        if [ "$1" = "feature" ]; then
+          echo '{"number":55,"url":"https://github.com/org/repo/pull/55","state":"OPEN","title":"Feature PR","isDraft":false,"mergedAt":null,"baseRefName":"main"}'
+        elif [ "$1" = "123" ]; then
+          echo 'Body text'
+        fi
+        ;;
+      merge)
+        exit 0
+        ;;
+      ready)
+        exit 0
+        ;;
+    esac
+    ;;
+  api)
+    if [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1' ]; then
+      printf '%s' '[{"number":10,"html_url":"https://github.com/org/repo/pull/10","state":"closed","title":"Newest","draft":false,"merged_at":"2026-01-01T00:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reused"}},{"number":11,"html_url":"https://github.com/org/repo/pull/11","state":"open","title":"Other","draft":true,"merged_at":null,"base":{"ref":"develop"},"head":{"ref":"feat/other"}}]'
+    elif [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=2' ]; then
+      printf '%s' '[{"number":4,"html_url":"https://github.com/org/repo/pull/4","state":"closed","title":"Old","draft":false,"merged_at":null,"base":{"ref":"main"},"head":{"ref":"feat/reused"}}]'
+    elif [ "$1" = 'repos/{owner}/{repo}/actions/runs?per_page=50' ]; then
+      printf 'feat/reused\tcompleted\tsuccess\nfeat/reused\tcompleted\tfailure\nfeat/other\tqueued\t\n'
+    fi
+    ;;
+  auth)
+    exit 0
+    ;;
+esac
+"#,
+        )
+    }
 
     #[test]
     fn merge_pr_status_page_keeps_first_pr_for_reused_branch_names() {
@@ -368,5 +426,167 @@ mod tests {
         assert_eq!(pr.base, "develop");
         assert!(pr.is_draft);
         assert!(!pr.merged);
+    }
+
+    #[test]
+    fn gh_wrappers_work_against_fake_cli() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_gh("wrappers");
+        let _path = PathGuard::install(&fake_dir);
+
+        let created = create_pr("Title", "Body", "main", "feature", true).expect("create pr");
+        assert_eq!(created.number, 77);
+        assert!(created.is_draft);
+
+        update_pr_base(77, "develop").expect("update base");
+        edit_pr(77, Some("New title"), Some("New body")).expect("edit pr");
+        merge_pr(77, "squash").expect("merge pr");
+        set_pr_ready(77, true).expect("ready");
+        open_pr_in_browser("feature").expect("open in browser");
+        assert!(is_gh_authenticated());
+        assert_eq!(repo_name().expect("repo name"), "org/repo");
+        assert_eq!(get_pr_body(123).expect("body"), "Body text");
+
+        let status = get_pr_status("feature")
+            .expect("pr status")
+            .expect("some pr");
+        assert_eq!(status.number, 55);
+        assert_eq!(status.base, "main");
+        assert_eq!(status.state, "OPEN");
+    }
+
+    #[test]
+    fn gh_bulk_helpers_parse_fake_cli_output() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_gh("bulk");
+        let _path = PathGuard::install(&fake_dir);
+
+        let prs = get_all_pr_statuses();
+        assert_eq!(prs.get("feat/reused").expect("reused").number, 10);
+        assert_eq!(prs.get("feat/other").expect("other").base, "develop");
+
+        let ci = get_all_ci_statuses();
+        assert_eq!(ci.get("feat/reused").expect("ci"), "✓");
+        assert_eq!(ci.get("feat/other").expect("ci"), "⏳");
+    }
+
+    #[test]
+    fn create_pr_fails_when_gh_returns_non_pr_url() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "gh-bad-pr-url",
+            "gh",
+            r#"#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+  echo "https://github.com/org/repo/not-a-pr"
+  exit 0
+fi
+exit 0
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let err = create_pr("Title", "Body", "main", "feature", false)
+            .expect_err("invalid PR URL should fail");
+        assert!(
+            err.to_string()
+                .contains("could not parse PR number from URL"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn get_pr_status_returns_error_on_malformed_json() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "gh-bad-pr-json",
+            "gh",
+            r#"#!/bin/sh
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  echo "{not-json"
+  exit 0
+fi
+exit 0
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let err = get_pr_status("feature").expect_err("bad json should bubble up");
+        assert!(
+            err.to_string().contains("key must be a string")
+                || err.to_string().contains("expected ident")
+                || err.to_string().contains("expected value"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn repo_name_errors_when_gh_returns_empty_string() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "gh-empty-repo",
+            "gh",
+            r#"#!/bin/sh
+exit 0
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let err = repo_name().expect_err("empty repo name should fail");
+        assert!(
+            err.to_string()
+                .contains("could not determine repository name"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn gh_error_stderr_is_preserved_for_failed_commands() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "gh-merge-fail",
+            "gh",
+            r#"#!/bin/sh
+echo "permission denied" >&2
+exit 1
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        let err = merge_pr(12, "squash").expect_err("merge should fail");
+        assert!(
+            err.to_string().contains("permission denied"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn body_from_file_surfaces_missing_file_path() {
+        let path = temp_dir("gh-body-file").join("missing.md");
+        let err = body_from_file(path.to_str().expect("utf8 path"))
+            .expect_err("missing file should fail");
+        assert!(
+            err.to_string().contains("failed to read body file"),
+            "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn get_ci_status_returns_empty_string_for_malformed_json() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_bin(
+            "gh-bad-ci-json",
+            "gh",
+            r#"#!/bin/sh
+if [ "$1" = "run" ] && [ "$2" = "list" ]; then
+  echo "{bad-json"
+  exit 0
+fi
+exit 0
+"#,
+        );
+        let _path = PathGuard::install(&fake_dir);
+
+        assert_eq!(get_ci_status("feature"), "");
     }
 }

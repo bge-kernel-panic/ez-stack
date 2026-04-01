@@ -125,3 +125,38 @@ pub fn confirm(prompt: &str) -> bool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tree_line_draws_expected_prefixes() {
+        assert_eq!(tree_line(0, true, &[], "root"), "root");
+        assert_eq!(tree_line(1, false, &[], "child"), "├─ child");
+        assert_eq!(tree_line(1, true, &[], "child"), "└─ child");
+        assert_eq!(tree_line(2, false, &[false], "leaf"), "│  ├─ leaf");
+        assert_eq!(tree_line(3, true, &[true, false], "leaf"), "   │  └─ leaf");
+    }
+
+    #[test]
+    fn receipt_json_serializes_plain_json() {
+        let value = serde_json::json!({"cmd": "sync", "branch": "feat/test"});
+        assert_eq!(
+            receipt_json(&value),
+            r#"{"branch":"feat/test","cmd":"sync"}"#
+        );
+    }
+
+    #[test]
+    fn pr_badge_always_contains_pr_number() {
+        for badge in [
+            pr_badge(12, "OPEN", false),
+            pr_badge(12, "CLOSED", false),
+            pr_badge(12, "MERGED", false),
+            pr_badge(12, "OPEN", true),
+        ] {
+            assert!(badge.contains("#12"));
+        }
+    }
+}
