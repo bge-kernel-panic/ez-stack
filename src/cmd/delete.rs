@@ -137,11 +137,9 @@ fn delete_with_worktree(
     let inside_worktree = inside_worktree_path(&current_dir, &wt_path);
 
     if inside_worktree && !yes {
-        ui::warn(&format!(
-            "You are inside the worktree for `{target}` that you are about to delete"
-        ));
+        ui::warn(&inside_worktree_delete_warning(target));
         if !ui::confirm("Delete this worktree and switch to the repo root?") {
-            ui::info("Cancelled");
+            ui::info(&inside_worktree_delete_cancelled(target));
             return Ok(());
         }
     }
@@ -270,6 +268,16 @@ fn inside_worktree_path(current_dir: &str, worktree_path: &str) -> bool {
     current_dir == worktree_path || current_dir.starts_with(&format!("{worktree_path}/"))
 }
 
+fn inside_worktree_delete_warning(target: &str) -> String {
+    format!(
+        "You are inside the worktree for `{target}` that you are about to delete\n  → Re-run with `--yes` to skip this prompt"
+    )
+}
+
+fn inside_worktree_delete_cancelled(target: &str) -> String {
+    format!("Cancelled\n  → Re-run with `--yes`: `ez worktree delete {target} --yes`")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,5 +296,18 @@ mod tests {
             "/repo/.worktrees/feat-two",
             "/repo/.worktrees/feat"
         ));
+    }
+
+    #[test]
+    fn inside_worktree_delete_warning_mentions_yes_flag() {
+        let warning = inside_worktree_delete_warning("feat/auth");
+        assert!(warning.contains("feat/auth"));
+        assert!(warning.contains("--yes"));
+    }
+
+    #[test]
+    fn inside_worktree_delete_cancelled_mentions_worktree_delete_yes_command() {
+        let warning = inside_worktree_delete_cancelled("feat/auth");
+        assert!(warning.contains("ez worktree delete feat/auth --yes"));
     }
 }

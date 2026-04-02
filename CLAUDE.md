@@ -151,6 +151,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.2.14 | Scope Guard: `ez create --scope ...`, `ez scope show|add|set|clear`, git-backed staged-file scope checks on `ez commit` and `ez push -am`, shared mutation guard path, scope metadata in `ez status --json` and receipts |
 | 0.2.15 | Make focused commits the intended workflow: CLI/help/docs/skill now default to `ez commit -m "..." -- <paths>`, keep `ez commit -am "..."` for bulk updates, and reserve `git add -p` for partial hunks |
 | 0.2.16 | Sync/list hardening: list all local branches with metadata overlay, paginate PR lookups, clean merged/closed branches safely (including current worktree cleanup via shell auto-cd), improve conflict receipts, and stop dev-port listeners on delete |
+| 0.2.17 | Stream `git fetch` progress during `ez sync` and surface `ez worktree delete --yes` as the non-interactive path when deleting the current worktree |
 
 ---
 

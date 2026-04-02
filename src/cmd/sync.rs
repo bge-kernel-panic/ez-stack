@@ -144,10 +144,8 @@ fn run_sync_inner(force: bool) -> Result<()> {
     let mut cleaned_current_worktree = false;
 
     // Fetch from remote.
-    let sp = ui::spinner(&format!("Fetching from `{}`...", state.remote));
+    ui::info(&format!("Fetching from `{}`...", state.remote));
     git::fetch(&state.remote)?;
-    sp.finish_and_clear();
-    ui::info(&format!("Fetched from `{}`", state.remote));
 
     // Update trunk to latest. git fetch above already refreshed origin/<trunk>.
     // Only attempt to fast-forward local trunk when it is strictly behind the remote-tracking

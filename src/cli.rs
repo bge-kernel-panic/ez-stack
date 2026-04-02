@@ -595,4 +595,22 @@ mod tests {
             _ => panic!("expected list command"),
         }
     }
+
+    #[test]
+    fn parses_worktree_delete_yes_flag() {
+        let cli =
+            Cli::try_parse_from(["ez", "worktree", "delete", "feat/auth", "--yes", "--force"])
+                .expect("parse worktree delete");
+
+        match cli.command {
+            Commands::Worktree(WorktreeArgs {
+                command: WorktreeCommands::Delete { name, force, yes },
+            }) => {
+                assert_eq!(name, "feat/auth");
+                assert!(force);
+                assert!(yes);
+            }
+            _ => panic!("expected worktree delete command"),
+        }
+    }
 }

@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, bail};
 use std::collections::BTreeSet;
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
 
 use crate::error::EzError;
 
@@ -40,6 +42,69 @@ fn run_git_with_status(args: &[&str]) -> Result<(bool, String, String)> {
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     Ok((output.status.success(), stdout, stderr))
+}
+
+fn stream_to_terminal<R, W>(mut reader: R, mut writer: W) -> std::io::Result<Vec<u8>>
+where
+    R: Read + Send + 'static,
+    W: Write,
+{
+    let mut captured = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        let read = reader.read(&mut chunk)?;
+        if read == 0 {
+            break;
+        }
+        writer.write_all(&chunk[..read])?;
+        writer.flush()?;
+        captured.extend_from_slice(&chunk[..read]);
+    }
+    Ok(captured)
+}
+
+fn run_git_streaming(args: &[&str]) -> Result<()> {
+    let mut child = Command::new("git")
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run git {}", args.join(" ")))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .context("failed to capture git stdout")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("failed to capture git stderr")?;
+
+    let stdout_handle = thread::spawn(|| stream_to_terminal(stdout, std::io::stdout()));
+    let stderr_handle = thread::spawn(|| stream_to_terminal(stderr, std::io::stderr()));
+
+    let status = child.wait()?;
+    let stdout_capture = stdout_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("failed to join git stdout stream"))??;
+    let stderr_capture = stderr_handle
+        .join()
+        .map_err(|_| anyhow::anyhow!("failed to join git stderr stream"))??;
+
+    if status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&stderr_capture).trim().to_string();
+        let stdout = String::from_utf8_lossy(&stdout_capture).trim().to_string();
+        let message = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            format!("git command failed: git {}", args.join(" "))
+        };
+        Err(EzError::GitError(message).into())
+    }
 }
 
 pub fn is_repo() -> bool {
@@ -238,8 +303,13 @@ fn git_scope_pattern(pattern: &str) -> String {
 }
 
 pub fn fetch(remote: &str) -> Result<()> {
-    run_git(&["fetch", remote])?;
+    let args = fetch_args(remote);
+    run_git_streaming(&args)?;
     Ok(())
+}
+
+fn fetch_args(remote: &str) -> [&str; 3] {
+    ["fetch", "--progress", remote]
 }
 
 pub fn rebase_onto(new_base: &str, old_base: &str, branch: &str) -> Result<RebaseOutcome> {
@@ -750,6 +820,11 @@ exit 1
             err.to_string().contains("fatal: simulated fetch failure"),
             "unexpected error: {err:#}"
         );
+    }
+
+    #[test]
+    fn fetch_args_force_progress_output() {
+        assert_eq!(fetch_args("origin"), ["fetch", "--progress", "origin"]);
     }
 
     #[test]
