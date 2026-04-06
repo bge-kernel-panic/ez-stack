@@ -58,6 +58,8 @@ Preferred workflow:
 | Edit PR title/body | `ez pr-edit --title "..." --body "..."` |
 | Mark PR as draft / ready | `ez draft` / `ez ready` |
 | Merge bottom PR | `ez merge` |
+| Merge non-interactively | `ez merge --yes` |
+| Merge current linear stack bottom-to-top | `ez merge --stack --yes` |
 
 ## Syncing
 

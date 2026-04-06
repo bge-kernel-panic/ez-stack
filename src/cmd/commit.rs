@@ -113,13 +113,17 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    fn should_skip_commit(if_changed: bool, has_staged: bool) -> bool {
+        if_changed && !has_staged
+    }
+
     #[test]
     fn test_if_changed_semantics() {
         // if_changed=true, nothing staged → should skip (return early)
-        assert!(true && !false); // if_changed && !has_staged → skip
+        assert!(should_skip_commit(true, false));
         // if_changed=true, something staged → should commit
-        assert!(!(true && !true)); // if_changed && !has_staged = false → don't skip
+        assert!(!should_skip_commit(true, true));
         // if_changed=false, nothing staged → NothingToCommit error (existing behavior)
-        assert!(!(false && !false)); // if_changed=false → guard never fires
+        assert!(!should_skip_commit(false, false));
     }
 }

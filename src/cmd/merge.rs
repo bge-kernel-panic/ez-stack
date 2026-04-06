@@ -7,60 +7,65 @@ use crate::github;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(method: &str) -> Result<()> {
-    let mut state = StackState::load()?;
-    if let Some(root) = git::current_linked_worktree_root()? {
-        ui::linked_worktree_warning(&root);
-    }
-    let current = git::current_branch()?;
+struct MergeTarget {
+    branch: String,
+    pr_number: u64,
+    title: String,
+}
 
-    if state.is_trunk(&current) {
-        bail!(EzError::OnTrunk);
-    }
+struct MergeOutcome {
+    branch: String,
+    pr_number: u64,
+    restacked: usize,
+}
 
-    if !state.is_managed(&current) {
-        bail!(EzError::BranchNotInStack(current.clone()));
-    }
-
-    // Find the bottom branch of the stack (closest to trunk).
-    let bottom = state.stack_bottom(&current);
-    let meta = state.get_branch(&bottom)?;
-    let pr_number = meta.pr_number;
-
-    let pr_number = match pr_number {
-        Some(n) => n,
-        None => bail!(EzError::UserMessage(format!(
-            "Branch `{bottom}` has no associated PR — run `ez submit` first"
-        ))),
+fn merge_targets(state: &StackState, current: &str, stack: bool) -> Result<Vec<MergeTarget>> {
+    let branches = if stack {
+        state.linear_stack(current)?
+    } else {
+        vec![state.stack_bottom(current)]
     };
 
-    // Confirm with the user.
-    let pr_info = github::get_pr_status(&bottom)?;
-    let title = pr_info
-        .as_ref()
-        .map(|p| p.title.as_str())
-        .unwrap_or("(unknown)");
+    branches
+        .into_iter()
+        .map(|branch| {
+            let meta = state.get_branch(&branch)?;
+            let pr_number = match meta.pr_number {
+                Some(number) => number,
+                None => bail!(EzError::UserMessage(format!(
+                    "Branch `{branch}` has no associated PR — run `ez submit` first"
+                ))),
+            };
+            let title = github::get_pr_status(&branch)?
+                .map(|pr| pr.title)
+                .unwrap_or_else(|| "(unknown)".to_string());
+            Ok(MergeTarget {
+                branch,
+                pr_number,
+                title,
+            })
+        })
+        .collect()
+}
 
-    if !ui::confirm(&format!("Merge PR #{pr_number} for `{bottom}` ({title})?")) {
-        ui::info("Aborted");
-        return Ok(());
-    }
-
-    // Merge via GitHub.
-    let sp = ui::spinner(&format!("Merging PR #{pr_number}..."));
-    github::merge_pr(pr_number, method)?;
-    sp.finish_and_clear();
-    ui::info(&format!("Merged PR #{pr_number} for `{bottom}`"));
-
-    // Reparent children of the merged branch to trunk.
+fn merge_branch(
+    state: &mut StackState,
+    branch: &str,
+    pr_number: u64,
+    method: &str,
+) -> Result<MergeOutcome> {
     let trunk = state.trunk.clone();
     let remote = state.remote.clone();
 
-    let children = state.reparent_children_preserving_parent_head(&bottom, &trunk)?;
+    let sp = ui::spinner(&format!("Merging PR #{pr_number}..."));
+    github::merge_pr(pr_number, method)?;
+    sp.finish_and_clear();
+    ui::info(&format!("Merged PR #{pr_number} for `{branch}`"));
+
+    let children = state.reparent_children_preserving_parent_head(branch, &trunk)?;
     for child_name in &children {
         ui::info(&format!("Reparented `{child_name}` onto `{trunk}`"));
 
-        // Update the PR base on GitHub if the child has a PR.
         if let Some(child_pr) = state.get_branch(child_name)?.pr_number
             && let Err(e) = github::update_pr_base(child_pr, &trunk)
         {
@@ -68,29 +73,26 @@ pub fn run(method: &str) -> Result<()> {
         }
     }
 
-    // Remove the merged branch from state.
-    state.remove_branch(&bottom);
+    state.remove_branch(branch);
 
-    // Delete local branch if it still exists.
-    // (gh merge --delete-branch may have already removed the remote branch)
-    if git::branch_exists(&bottom) {
-        // If we're on the merged branch, checkout trunk first.
-        let current_now = git::current_branch()?;
-        if current_now == bottom {
+    if git::branch_exists(branch) {
+        if git::current_branch()? == branch {
             git::checkout(&trunk)?;
         }
-        let _ = git::delete_branch(&bottom, true);
+        let _ = git::delete_branch(branch, true);
     }
 
-    // Fetch to get the merged trunk.
+    // Best-effort remote cleanup to preserve prior `gh pr merge --delete-branch`
+    // behavior while using the non-interactive REST merge path.
+    let _ = git::delete_remote_branch(&remote, branch);
+
     let sp = ui::spinner("Fetching latest changes...");
     git::fetch(&remote)?;
     sp.finish_and_clear();
 
-    // Restack remaining branches in topological order.
     let order = state.topo_order();
-    let mut restacked = 0;
     let current_root = git::repo_root()?;
+    let mut restacked = 0;
 
     for branch_name in &order {
         let meta = state.get_branch(branch_name)?;
@@ -131,31 +133,87 @@ pub fn run(method: &str) -> Result<()> {
         }
     }
 
-    // Checkout the next branch in the stack, or trunk if none remain.
-    let current_now = git::current_branch()?;
-    if !state.is_managed(&current_now) && !state.is_trunk(&current_now) {
-        if let Some(next) = children.first().filter(|c| state.is_managed(c)) {
-            git::checkout(next)?;
-            ui::info(&format!("Checked out `{next}`"));
+    state.save()?;
+
+    Ok(MergeOutcome {
+        branch: branch.to_string(),
+        pr_number,
+        restacked,
+    })
+}
+
+pub fn run(method: &str, yes: bool, stack: bool) -> Result<()> {
+    let mut state = StackState::load()?;
+    if let Some(root) = git::current_linked_worktree_root()? {
+        ui::linked_worktree_warning(&root);
+    }
+    let current = git::current_branch()?;
+
+    if state.is_trunk(&current) {
+        bail!(EzError::OnTrunk);
+    }
+
+    if !state.is_managed(&current) {
+        bail!(EzError::BranchNotInStack(current.clone()));
+    }
+
+    let targets = merge_targets(&state, &current, stack)?;
+    if targets.is_empty() {
+        ui::info("No PRs to merge.");
+        return Ok(());
+    }
+
+    if !yes {
+        let confirmed = if stack {
+            let summary = targets
+                .iter()
+                .map(|target| format!("#{} `{}`", target.pr_number, target.branch))
+                .collect::<Vec<_>>()
+                .join(", ");
+            ui::confirm(&format!(
+                "Merge {} PRs from the current stack ({summary})?",
+                targets.len()
+            ))
         } else {
-            git::checkout(&trunk)?;
-            ui::info(&format!("Checked out `{trunk}`"));
+            let target = &targets[0];
+            ui::confirm(&format!(
+                "Merge PR #{} for `{}` ({})?",
+                target.pr_number, target.branch, target.title
+            ))
+        };
+
+        if !confirmed {
+            ui::info("Aborted");
+            return Ok(());
         }
     }
 
-    state.save()?;
+    let mut total_restacked = 0;
 
-    if restacked > 0 {
-        ui::info(&format!("Restacked {restacked} branch(es)"));
+    for target in &targets {
+        let outcome = merge_branch(&mut state, &target.branch, target.pr_number, method)?;
+        total_restacked += outcome.restacked;
+        ui::receipt(&serde_json::json!({
+            "cmd": "merge",
+            "branch": outcome.branch,
+            "pr_number": outcome.pr_number,
+            "method": method,
+            "stack": stack,
+        }));
     }
-    ui::success("Merge complete");
 
-    ui::receipt(&serde_json::json!({
-        "cmd": "merge",
-        "branch": bottom,
-        "pr_number": pr_number,
-        "method": method,
-    }));
+    if total_restacked > 0 {
+        ui::info(&format!("Restacked {total_restacked} branch(es)"));
+    }
+
+    if stack {
+        ui::success(&format!(
+            "Merged {} PR(s) from the current stack",
+            targets.len()
+        ));
+    } else {
+        ui::success("Merge complete");
+    }
 
     Ok(())
 }

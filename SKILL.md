@@ -106,6 +106,8 @@ ez push -am "feat: done"               # stage tracked changes + commit + push +
 ez push -Am "feat: done"               # include untracked files too
 ez push --title "feat: auth" --body "..." # with PR metadata
 ez submit                                # push entire stack
+ez merge --yes                           # merge bottom PR non-interactively
+ez merge --stack --yes                   # merge the current linear stack bottom-to-top
 ```
 
 ### Sync with other agents' work

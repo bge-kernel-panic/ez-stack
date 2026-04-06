@@ -187,6 +187,8 @@ Intended workflow:
 | `ez pr-edit --title "..." --body "..."` | Edit PR metadata |
 | `ez draft` / `ez ready` | Toggle PR draft status |
 | `ez merge` | Merge bottom PR via GitHub |
+| `ez merge --yes` | Merge non-interactively for agents/scripts |
+| `ez merge --stack --yes` | Merge the current linear stack bottom-to-top |
 
 ### Setup
 

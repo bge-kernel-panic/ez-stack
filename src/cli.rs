@@ -349,12 +349,22 @@ Examples:
     #[command(after_help = "\
 Examples:
   ez merge
+  ez merge --yes
+  ez merge --stack --yes
   ez merge --method squash
   ez merge --method rebase")]
     Merge {
         /// Merge method: merge, squash, or rebase
         #[arg(long, default_value = "squash")]
         method: String,
+
+        /// Skip confirmation prompt (for agents and scripts)
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Merge the current linear stack bottom-to-top
+        #[arg(long)]
+        stack: bool,
     },
 
     /// Edit the PR for the current branch
@@ -696,6 +706,21 @@ mod tests {
                 assert!(yes);
             }
             _ => panic!("expected worktree delete command"),
+        }
+    }
+
+    #[test]
+    fn parses_merge_yes_and_stack_flags() {
+        let cli = Cli::try_parse_from(["ez", "merge", "--yes", "--stack", "--method", "rebase"])
+            .expect("parse merge");
+
+        match cli.command {
+            Commands::Merge { method, yes, stack } => {
+                assert_eq!(method, "rebase");
+                assert!(yes);
+                assert!(stack);
+            }
+            _ => panic!("expected merge command"),
         }
     }
 }

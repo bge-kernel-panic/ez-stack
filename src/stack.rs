@@ -227,6 +227,38 @@ impl StackState {
             current = next;
         }
     }
+
+    /// Return the current linear stack as bottom-to-top branch names.
+    ///
+    /// This includes the branch's ancestors down to the bottom branch plus any
+    /// unique child chain above it. If the upward direction branches, the
+    /// caller must choose a specific tip branch instead.
+    pub fn linear_stack(&self, branch: &str) -> Result<Vec<String>> {
+        let mut chain: Vec<String> = self
+            .path_to_trunk(branch)
+            .into_iter()
+            .rev()
+            .filter(|name| !self.is_trunk(name))
+            .collect();
+
+        let mut current = branch.to_string();
+        loop {
+            let children = self.children_of(&current);
+            match children.len() {
+                0 => return Ok(chain),
+                1 => {
+                    current = children[0].clone();
+                    chain.push(current.clone());
+                }
+                _ => {
+                    let listed = children.join(", ");
+                    bail!(EzError::UserMessage(format!(
+                        "`ez merge --stack` is ambiguous from `{current}` because it has multiple child branches: {listed}\n  → Run the command from a specific tip branch, or merge bottom PRs one at a time"
+                    )));
+                }
+            }
+        }
+    }
 }
 
 impl BranchMeta {
@@ -250,6 +282,14 @@ mod tests {
             Some(vec!["src/**".to_string()]),
             Some(ScopeMode::Strict),
         );
+        state
+    }
+
+    fn linear_state() -> StackState {
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/a", "main", "aaa", None, None);
+        state.add_branch("feat/b", "feat/a", "bbb", None, None);
+        state.add_branch("feat/c", "feat/b", "ccc", None, None);
         state
     }
 
@@ -341,6 +381,44 @@ mod tests {
         assert_eq!(
             state.get_branch("feat/b").expect("branch").parent_head,
             original_parent_head
+        );
+    }
+
+    #[test]
+    fn linear_stack_returns_full_chain_from_tip_branch() {
+        let state = linear_state();
+        assert_eq!(
+            state.linear_stack("feat/c").expect("linear stack"),
+            vec![
+                "feat/a".to_string(),
+                "feat/b".to_string(),
+                "feat/c".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn linear_stack_extends_from_middle_branch_to_tip() {
+        let state = linear_state();
+        assert_eq!(
+            state.linear_stack("feat/b").expect("linear stack"),
+            vec![
+                "feat/a".to_string(),
+                "feat/b".to_string(),
+                "feat/c".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn linear_stack_rejects_ambiguous_branching() {
+        let state = sample_state();
+        let err = state
+            .linear_stack("feat/a")
+            .expect_err("ambiguous stack should fail");
+        assert!(
+            err.to_string().contains("ambiguous"),
+            "unexpected error: {err:#}"
         );
     }
 }

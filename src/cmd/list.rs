@@ -233,6 +233,58 @@ pub fn run(json: bool) -> Result<()> {
     Ok(())
 }
 
+fn run_json(state: &StackState, current: &str, branches: &[BranchData]) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json_entries(state, current, branches))?
+    );
+    Ok(())
+}
+
+fn json_entries(
+    state: &StackState,
+    current: &str,
+    branches: &[BranchData],
+) -> Vec<serde_json::Value> {
+    let mut entries = Vec::new();
+
+    entries.push(serde_json::json!({
+        "branch": state.trunk,
+        "is_trunk": true,
+        "is_current": current == state.trunk,
+    }));
+
+    for b in branches {
+        let has_wt = b.wt_path.is_some();
+        let (s, m, u) = b.wt_status;
+        let wt_status = if has_wt {
+            Some(serde_json::json!({"staged": s, "modified": m, "untracked": u}))
+        } else {
+            None
+        };
+        let ci = if b.ci.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(b.ci.clone())
+        };
+
+        entries.push(serde_json::json!({
+            "branch": b.name,
+            "is_managed": b.is_managed,
+            "is_current": b.name == current,
+            "parent": b.parent,
+            "pr_number": b.pr_number,
+            "ci_status": ci,
+            "last_activity_secs": b.age,
+            "dev_port": if has_wt { Some(dev::dev_port(&b.name)) } else { None },
+            "worktree_path": b.wt_path,
+            "working_tree": wt_status,
+        }));
+    }
+
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -307,56 +359,4 @@ mod tests {
         assert!(entries[1]["worktree_path"].is_null());
         assert!(entries[1]["working_tree"].is_null());
     }
-}
-
-fn run_json(state: &StackState, current: &str, branches: &[BranchData]) -> Result<()> {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json_entries(state, current, branches))?
-    );
-    Ok(())
-}
-
-fn json_entries(
-    state: &StackState,
-    current: &str,
-    branches: &[BranchData],
-) -> Vec<serde_json::Value> {
-    let mut entries = Vec::new();
-
-    entries.push(serde_json::json!({
-        "branch": state.trunk,
-        "is_trunk": true,
-        "is_current": current == state.trunk,
-    }));
-
-    for b in branches {
-        let has_wt = b.wt_path.is_some();
-        let (s, m, u) = b.wt_status;
-        let wt_status = if has_wt {
-            Some(serde_json::json!({"staged": s, "modified": m, "untracked": u}))
-        } else {
-            None
-        };
-        let ci = if b.ci.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::Value::String(b.ci.clone())
-        };
-
-        entries.push(serde_json::json!({
-            "branch": b.name,
-            "is_managed": b.is_managed,
-            "is_current": b.name == current,
-            "parent": b.parent,
-            "pr_number": b.pr_number,
-            "ci_status": ci,
-            "last_activity_secs": b.age,
-            "dev_port": if has_wt { Some(dev::dev_port(&b.name)) } else { None },
-            "worktree_path": b.wt_path,
-            "working_tree": wt_status,
-        }));
-    }
-
-    entries
 }

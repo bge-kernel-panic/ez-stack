@@ -154,6 +154,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.2.17 | Stream `git fetch` progress during `ez sync` and surface `ez worktree delete --yes` as the non-interactive path when deleting the current worktree |
 | 0.2.18 | Add `-A`/`--all-files` for commit and push, preserve stale-base metadata until real restacks happen across sync/delete/merge, refresh trunk during `ez restack`, and warn after switching to a branch that is not restacked on latest main |
 | 0.2.19 | Canonicalize `ez skill install` under `.agents/skills` with safe link-or-copy compatibility targets, improve worktree-awareness messaging and status output, and teach agents when to use `-A`/`-Am` for untracked files |
+| 0.2.20 | Add non-interactive `ez merge --yes`, support `ez merge --stack` for linear stacks, and restore remote branch cleanup after REST-based merges |
 
 ---
 

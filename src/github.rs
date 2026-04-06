@@ -153,19 +153,24 @@ fn pr_info_from_rest_value(value: &serde_json::Value) -> Option<(String, PrInfo)
 }
 
 pub fn merge_pr(pr_number: u64, method: &str) -> Result<()> {
-    let flag = match method {
-        "squash" => "--squash",
-        "rebase" => "--rebase",
-        _ => "--merge",
-    };
-    run_gh(&[
-        "pr",
-        "merge",
-        &pr_number.to_string(),
-        flag,
-        "--delete-branch",
+    let repo = repo_name()?;
+    let route = format!("repos/{repo}/pulls/{pr_number}/merge");
+    let response = run_gh(&[
+        "api",
+        "-X",
+        "PUT",
+        &route,
+        "-f",
+        &format!("merge_method={method}"),
     ])?;
-    Ok(())
+
+    let value: serde_json::Value = serde_json::from_str(&response)?;
+    if value["merged"].as_bool().unwrap_or(false) {
+        return Ok(());
+    }
+
+    let message = value["message"].as_str().unwrap_or("merge failed");
+    bail!(EzError::GhError(message.to_string()));
 }
 
 pub fn edit_pr(pr_number: u64, title: Option<&str>, body: Option<&str>) -> Result<()> {
@@ -353,7 +358,9 @@ case "$cmd" in
     esac
     ;;
   api)
-    if [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1' ]; then
+    if [ "$1" = "-X" ] && [ "$2" = "PUT" ] && [ "$3" = 'repos/org/repo/pulls/77/merge' ] && [ "$4" = "-f" ] && [ "$5" = 'merge_method=squash' ]; then
+      echo '{"merged":true,"message":"merged"}'
+    elif [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1' ]; then
       printf '%s' '[{"number":10,"html_url":"https://github.com/org/repo/pull/10","state":"closed","title":"Newest","draft":false,"merged_at":"2026-01-01T00:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reused"}},{"number":11,"html_url":"https://github.com/org/repo/pull/11","state":"open","title":"Other","draft":true,"merged_at":null,"base":{"ref":"develop"},"head":{"ref":"feat/other"}}]'
     elif [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=2' ]; then
       printf '%s' '[{"number":4,"html_url":"https://github.com/org/repo/pull/4","state":"closed","title":"Old","draft":false,"merged_at":null,"base":{"ref":"main"},"head":{"ref":"feat/reused"}}]'
