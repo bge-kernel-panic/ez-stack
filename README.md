@@ -3,8 +3,7 @@
 **Agent-first version control. Stacked PRs, worktree isolation, zero friction.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/ez-stack)](https://pypi.org/project/ez-stack/)
-[![CI](https://github.com/rohoswagger/ez-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/rohoswagger/ez-stack/actions/workflows/ci.yml)
+[![CI](https://github.com/bge-kernel-panic/ez-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/bge-kernel-panic/ez-stack/actions/workflows/ci.yml)
 
 ---
 
@@ -12,10 +11,30 @@
 
 ## Install
 
+Download the latest binary for your platform from [Releases](https://github.com/bge-kernel-panic/ez-stack/releases), extract it, and place it somewhere on your PATH:
+
 ```bash
-pip install ez-stack
+# macOS (Apple Silicon)
+curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez-aarch64-apple-darwin.tar.gz | tar xz
+mv ez /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez-x86_64-apple-darwin.tar.gz | tar xz
+mv ez /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez-x86_64-unknown-linux-gnu.tar.gz | tar xz
+mv ez /usr/local/bin/
+
+# Then:
 ez setup --yes
 ez init
+```
+
+Or install from source via [crates.io](https://crates.io/crates/ez-stack):
+
+```bash
+cargo install ez-stack
 ```
 
 ## The 4 Commands
@@ -222,7 +241,7 @@ See [SKILL.md](./SKILL.md) for the full agent workflow, and [reference.md](./ref
 
 - **git** 2.38+
 - **gh** (GitHub CLI), authenticated via `gh auth login`
-- **Python 3.8+** (for `pip install`) or download binaries from [Releases](https://github.com/rohoswagger/ez-stack/releases)
+- **Rust** (only if building from source via `cargo install`)
 
 ## License
 

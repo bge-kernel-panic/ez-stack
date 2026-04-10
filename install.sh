@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # ez-stack installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/rohoswagger/ez-stack/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/bge-kernel-panic/ez-stack/main/install.sh | bash
 # Or:    curl -fsSL ... | bash -s -- v0.2.0   (specific version)
 
-REPO="rohoswagger/ez-stack"
+REPO="bge-kernel-panic/ez-stack"
 BINARY="ez"
 INSTALL_DIR="${EZ_INSTALL_DIR:-$HOME/.local/bin}"
 

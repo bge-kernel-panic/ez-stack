@@ -3,7 +3,7 @@ use std::process::Command;
 
 use crate::ui;
 
-const REPO: &str = "rohoswagger/ez-stack";
+const REPO: &str = "bge-kernel-panic/ez-stack";
 
 fn parse_latest_version_response(body: &str) -> Result<String> {
     for line in body.lines() {
