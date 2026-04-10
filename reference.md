@@ -6,19 +6,25 @@ This is the full command reference. For the core workflow, see [SKILL.md](SKILL.
 
 | Intent | Command |
 |--------|---------|
-| Commit current staged set (restacks children) | `ez commit -m "msg"` |
+| Commit with editor (opens `$EDITOR`) | `ez commit` |
+| Commit with editor + diff in buffer | `ez commit -v` |
+| Commit with message | `ez commit -m "msg"` |
 | Stage all + commit | `ez commit -am "msg"` |
 | Multi-paragraph commit | `ez commit -m "subject" -m "body"` |
 | Commit specific files only | `ez commit -m "msg" -- path1 path2` |
 | No-op if nothing staged | `ez commit -m "msg" --if-changed` |
-| Amend last commit | `ez amend` |
+| Amend with editor (edit existing message) | `ez amend` |
+| Amend with editor + diff in buffer | `ez amend -v` |
 | Amend with new message | `ez amend -m "new msg"` |
+| Stage all + amend (opens editor) | `ez amend -a` |
+| Stage all + amend with message | `ez amend -am "new msg"` |
 
 Preferred workflow:
 
 - Focused commit: `ez commit -m "msg" -- path1 path2`
 - Bulk update: `ez commit -am "msg"`
 - Partial hunks: `git add -p` then `ez commit -m "msg"`
+- Edit message interactively: `ez commit` or `ez commit -v`
 
 ## Scope Guard
 
@@ -74,6 +80,9 @@ Preferred workflow:
 
 | Intent | Command |
 |--------|---------|
+| Adopt current branch into the stack | `ez adopt` |
+| Adopt a named branch | `ez adopt <name>` |
+| Adopt with explicit parent | `ez adopt <name> --parent <branch>` |
 | Move branch to new parent | `ez move --onto <branch>` |
 | Push entire stack | `ez submit` |
 
@@ -83,6 +92,8 @@ Preferred workflow:
 |--------|---------|
 | Install skill in repo | `ez skill install` |
 | Shell integration | `ez setup --yes` |
+| Default to no-worktree on create | `ez setup --no-worktree` |
+| Default to worktree on create | `ez setup --worktree` |
 | Update ez | `ez update` |
 | Check for updates | `ez update --check` |
 
