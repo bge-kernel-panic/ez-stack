@@ -40,12 +40,78 @@ pub struct ScopeReceiptData {
     pub out_of_scope_files: Vec<String>,
 }
 
+/// How to create the commit after staging and validation are done.
+pub enum CommitMethod<'a> {
+    /// Use `git commit -m` with the given message.
+    Message(&'a str),
+    /// Open the editor. If `verbose`, include the diff (`git commit -v`).
+    Interactive { verbose: bool },
+}
+
 pub fn commit_with_guard(
-    message: &str,
+    method: CommitMethod<'_>,
     stage_mode: Option<StageMode>,
     if_changed: bool,
     paths: &[String],
 ) -> Result<Option<CommitOutcome>> {
+    let Some(ready) = prepare_commit(stage_mode, if_changed, paths)? else {
+        return Ok(None);
+    };
+
+    let committed = match method {
+        CommitMethod::Message(msg) => {
+            if let Err(e) = git::commit(msg) {
+                report_hook_changes(&ready.pre_modified);
+                return Err(e);
+            }
+            true
+        }
+        CommitMethod::Interactive { verbose } => match git::commit_interactive(verbose) {
+            Ok(created) => {
+                if !created {
+                    return Ok(None);
+                }
+                true
+            }
+            Err(e) => {
+                report_hook_changes(&ready.pre_modified);
+                return Err(e);
+            }
+        },
+    };
+
+    if !committed {
+        return Ok(None);
+    }
+
+    let after = git::rev_parse("HEAD")?;
+    let (files_changed, insertions, deletions) = git::diff_stat_numbers();
+
+    Ok(Some(CommitOutcome {
+        current: ready.current,
+        before: ready.before,
+        after,
+        files_changed,
+        insertions,
+        deletions,
+        scope: ready.scope,
+    }))
+}
+
+struct CommitReady {
+    current: String,
+    before: String,
+    pre_modified: Vec<String>,
+    scope: ScopeReceiptData,
+}
+
+/// Shared pre-commit logic: validate branch, stage files, check scope.
+/// Returns `None` when `if_changed` is set and nothing is staged.
+fn prepare_commit(
+    stage_mode: Option<StageMode>,
+    if_changed: bool,
+    paths: &[String],
+) -> Result<Option<CommitReady>> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
@@ -94,21 +160,10 @@ pub fn commit_with_guard(
     let before = git::rev_parse("HEAD")?;
     let pre_modified = git::modified_files();
 
-    if let Err(e) = git::commit(message) {
-        report_hook_changes(&pre_modified);
-        return Err(e);
-    }
-
-    let after = git::rev_parse("HEAD")?;
-    let (files_changed, insertions, deletions) = git::diff_stat_numbers();
-
-    Ok(Some(CommitOutcome {
+    Ok(Some(CommitReady {
         current,
         before,
-        after,
-        files_changed,
-        insertions,
-        deletions,
+        pre_modified,
         scope,
     }))
 }
@@ -264,7 +319,8 @@ mod tests {
             .save()
             .expect("save state");
 
-        let err = commit_with_guard("msg", None, false, &[]).expect_err("trunk commit should fail");
+        let err = commit_with_guard(CommitMethod::Message("msg"), None, false, &[])
+            .expect_err("trunk commit should fail");
         assert!(matches!(
             err.downcast_ref::<EzError>(),
             Some(EzError::OnTrunk)
@@ -281,8 +337,8 @@ mod tests {
             .expect("save state");
         git::create_branch("scratch").expect("create scratch");
 
-        let err =
-            commit_with_guard("msg", None, false, &[]).expect_err("unmanaged branch should fail");
+        let err = commit_with_guard(CommitMethod::Message("msg"), None, false, &[])
+            .expect_err("unmanaged branch should fail");
         assert!(matches!(
             err.downcast_ref::<EzError>(),
             Some(EzError::BranchNotInStack(name)) if name == "scratch"
@@ -295,7 +351,8 @@ mod tests {
         let repo = init_managed_feature_repo("mutation-if-changed", None, None);
         let _cwd = CwdGuard::enter(&repo);
 
-        let outcome = commit_with_guard("msg", None, true, &[]).expect("guard should succeed");
+        let outcome = commit_with_guard(CommitMethod::Message("msg"), None, true, &[])
+            .expect("guard should succeed");
         assert!(outcome.is_none());
     }
 
@@ -306,7 +363,7 @@ mod tests {
         let _cwd = CwdGuard::enter(&repo);
 
         let err = commit_with_guard(
-            "msg",
+            CommitMethod::Message("msg"),
             Some(StageMode::Tracked),
             false,
             &["tracked.txt".to_string()],
@@ -331,7 +388,7 @@ mod tests {
         write_file(&repo, "src/billing/invoice.rs", "pub fn invoice() {}\n");
 
         let err = commit_with_guard(
-            "feat: wrong scope",
+            CommitMethod::Message("feat: wrong scope"),
             None,
             false,
             &["src/billing/invoice.rs".to_string()],
@@ -353,7 +410,7 @@ mod tests {
         write_file(&repo, "ignored.txt", "ignored\n");
 
         let outcome = commit_with_guard(
-            "feat: add selected file",
+            CommitMethod::Message("feat: add selected file"),
             None,
             false,
             &["selected.txt".to_string()],
@@ -380,9 +437,14 @@ mod tests {
         let _cwd = CwdGuard::enter(&repo);
         write_file(&repo, "new.txt", "new\n");
 
-        let outcome = commit_with_guard("feat: add new file", Some(StageMode::All), false, &[])
-            .expect("commit should succeed")
-            .expect("commit outcome");
+        let outcome = commit_with_guard(
+            CommitMethod::Message("feat: add new file"),
+            Some(StageMode::All),
+            false,
+            &[],
+        )
+        .expect("commit should succeed")
+        .expect("commit outcome");
 
         assert_eq!(outcome.files_changed, 1);
         assert_eq!(

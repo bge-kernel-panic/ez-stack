@@ -16,6 +16,21 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    /// Adopt an existing git branch into the ez stack
+    #[command(after_help = "\
+Examples:
+  ez adopt
+  ez adopt feat/auth
+  ez adopt feat/auth --parent feat/base")]
+    Adopt {
+        /// Branch to adopt (defaults to current branch)
+        name: Option<String>,
+
+        /// Parent branch (defaults to trunk)
+        #[arg(long)]
+        parent: Option<String>,
+    },
+
     /// Initialize ez in the current git repository
     #[command(after_help = "\
 Examples:
@@ -64,6 +79,10 @@ Examples:
         #[arg(long, alias = "on", conflicts_with = "message")]
         from: Option<String>,
 
+        /// Force worktree creation (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
         /// Create a branch only (no worktree)
         #[arg(long)]
         no_worktree: bool,
@@ -88,13 +107,14 @@ Examples:
   ez commit -m \"feat: add parser\" -- src/parser.rs src/ast.rs
   ez commit -am \"feat: add parser\"
   ez commit -Am \"feat: add parser and new fixture\"
+  ez commit -v
   git add -p
   ez commit -m \"fix: keep intended hunks only\"
   ez commit -m \"feat: add parser\" -m \"Implements recursive descent.\"
   ez commit -m \"chore: format\" --if-changed")]
     Commit {
-        /// Commit message (repeat -m for multi-paragraph, like git)
-        #[arg(short, long, required = true)]
+        /// Commit message (repeat -m for multi-paragraph, like git). Opens editor if omitted.
+        #[arg(short, long)]
         message: Vec<String>,
 
         /// Stage all tracked changes before committing
@@ -104,6 +124,10 @@ Examples:
         /// Stage all changes, including untracked files, before committing
         #[arg(short = 'A', long = "all-files", conflicts_with = "all")]
         all_files: bool,
+
+        /// Show diff in the editor when composing a commit message (like git commit -v)
+        #[arg(short = 'v', long)]
+        verbose: bool,
 
         /// No-op (exit 0) if there is nothing to commit
         #[arg(long)]
@@ -118,16 +142,22 @@ Examples:
     #[command(after_help = "\
 Examples:
   ez amend
+  ez amend -v
   ez amend -m \"better message\"
-  ez amend -a")]
+  ez amend -a
+  ez amend -av")]
     Amend {
-        /// New commit message (keeps existing if not provided)
+        /// New commit message (opens editor to edit if omitted)
         #[arg(short, long)]
         message: Option<String>,
 
         /// Stage all changes before amending
         #[arg(short, long)]
         all: bool,
+
+        /// Show diff in the editor when editing the commit message
+        #[arg(short = 'v', long)]
+        verbose: bool,
     },
 
     /// Push the current branch and create/update its PR
@@ -427,6 +457,14 @@ Examples:
         /// Skip confirmation (for agents and scripts)
         #[arg(short, long)]
         yes: bool,
+
+        /// Set worktree as the default for `ez create`
+        #[arg(long, conflicts_with = "no_worktree_default")]
+        worktree: bool,
+
+        /// Set no-worktree as the default for `ez create`
+        #[arg(long = "no-worktree", id = "no_worktree_default")]
+        no_worktree: bool,
     },
 
     /// Manage the current branch's scope configuration

@@ -152,12 +152,68 @@ pub fn commit(message: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn commit_amend(message: Option<&str>) -> Result<()> {
-    match message {
-        Some(msg) => run_git(&["commit", "--amend", "-m", msg])?,
-        None => run_git(&["commit", "--amend", "--no-edit"])?,
-    };
+/// Run `git commit` interactively (opens the editor). Optionally with `-v` to
+/// include the diff in the editor buffer.
+/// Returns Ok(true) if a commit was created, Ok(false) if the user aborted (empty message).
+pub fn commit_interactive(verbose: bool) -> Result<bool> {
+    let mut args = vec!["commit"];
+    if verbose {
+        args.push("-v");
+    }
+    let status = Command::new("git")
+        .args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to run git commit")?;
+
+    if status.success() {
+        return Ok(true);
+    }
+    // Exit code 1 with empty message = user aborted. Anything else is a real error.
+    let code = status.code().unwrap_or(1);
+    if code == 1 {
+        Ok(false)
+    } else {
+        Err(EzError::GitError(format!("git commit exited with code {code}")).into())
+    }
+}
+
+/// Return the subject line of HEAD.
+pub fn head_subject() -> Result<String> {
+    run_git(&["log", "-1", "--format=%s"])
+}
+
+pub fn commit_amend(message: &str) -> Result<()> {
+    run_git(&["commit", "--amend", "-m", message])?;
     Ok(())
+}
+
+/// Run `git commit --amend` interactively (opens the editor to edit the message).
+/// Returns Ok(true) if the amend succeeded, Ok(false) if the user aborted.
+pub fn commit_amend_interactive(verbose: bool) -> Result<bool> {
+    let mut args = vec!["commit", "--amend"];
+    if verbose {
+        args.push("-v");
+    }
+    let status = Command::new("git")
+        .args(&args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to run git commit --amend")?;
+
+    if status.success() {
+        return Ok(true);
+    }
+    let code = status.code().unwrap_or(1);
+    if code == 1 {
+        Ok(false)
+    } else {
+        Err(EzError::GitError(format!("git commit --amend exited with code {code}")).into())
+    }
 }
 
 /// Returns the `--stat` summary for HEAD (files changed, insertions, deletions).

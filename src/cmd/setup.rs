@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use std::path::PathBuf;
 
+use crate::config;
 use crate::ui;
 
 /// Returns the user-level ez config directory (~/.ez/).
@@ -99,7 +100,18 @@ fn planned_setup_lines(
     lines_to_add
 }
 
-pub fn run(yes: bool) -> Result<()> {
+pub fn run(yes: bool, worktree: Option<bool>) -> Result<()> {
+    if let Some(value) = worktree {
+        config::set_create_worktree(value)?;
+        if value {
+            ui::success("Default: ez create will use worktrees");
+        } else {
+            ui::success("Default: ez create will not use worktrees");
+        }
+        ui::hint("Override per-invocation with --worktree or --no-worktree");
+        return Ok(());
+    }
+
     let shell = detect_shell();
 
     let Some(shell) = shell else {

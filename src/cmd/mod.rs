@@ -1,3 +1,4 @@
+pub mod adopt;
 pub mod amend;
 pub mod branch;
 pub mod checkout;
@@ -20,6 +21,7 @@ pub mod pr_view;
 pub mod push;
 pub mod rebase_conflict;
 pub mod restack;
+pub mod restack_children;
 pub mod scope;
 pub mod setup;
 pub mod shell_init;

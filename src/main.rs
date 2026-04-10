@@ -1,5 +1,6 @@
 mod cli;
 mod cmd;
+mod config;
 mod dev;
 mod error;
 #[allow(dead_code)]
@@ -111,6 +112,7 @@ fn handle_clap_error(e: clap::Error, start: Instant) {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
+        Commands::Adopt { name, parent } => cmd::adopt::run(name.as_deref(), parent.as_deref()),
         Commands::Init { trunk } => cmd::init::run(trunk),
         Commands::Create {
             name,
@@ -118,33 +120,59 @@ fn run(cli: Cli) -> Result<()> {
             all,
             all_files,
             from,
+            worktree,
             no_worktree,
             scope,
             scope_mode,
             hook,
-        } => cmd::create::run(
-            &name,
-            message.as_deref(),
-            all,
-            all_files,
-            from.as_deref(),
-            no_worktree,
-            &scope,
-            scope_mode,
-            hook.as_deref(),
-        ),
+        } => {
+            let effective_no_worktree = if worktree {
+                false
+            } else if no_worktree {
+                true
+            } else {
+                !config::Config::load().create_worktree()
+            };
+            cmd::create::run(
+                &name,
+                message.as_deref(),
+                all,
+                all_files,
+                from.as_deref(),
+                effective_no_worktree,
+                &scope,
+                scope_mode,
+                hook.as_deref(),
+            )
+        }
         Commands::Commit {
             message,
             all,
             all_files,
+            verbose,
             if_changed,
             paths,
         } => {
             // Join repeated -m flags with double newline (matching git behavior).
-            let full_message = message.join("\n\n");
-            cmd::commit::run(&full_message, all, all_files, if_changed, &paths)
+            let full_message = if message.is_empty() {
+                None
+            } else {
+                Some(message.join("\n\n"))
+            };
+            cmd::commit::run(
+                full_message.as_deref(),
+                verbose,
+                all,
+                all_files,
+                if_changed,
+                &paths,
+            )
         }
-        Commands::Amend { message, all } => cmd::amend::run(message.as_deref(), all),
+        Commands::Amend {
+            message,
+            all,
+            verbose,
+        } => cmd::amend::run(message.as_deref(), all, verbose),
         Commands::Push {
             draft,
             title,
@@ -206,7 +234,20 @@ fn run(cli: Cli) -> Result<()> {
         Commands::PrLink => cmd::pr_link::run(),
         Commands::Pr => cmd::pr_view::run(),
         Commands::Update { version, check } => cmd::update::run(version.as_deref(), check),
-        Commands::Setup { yes } => cmd::setup::run(yes),
+        Commands::Setup {
+            yes,
+            worktree,
+            no_worktree,
+        } => {
+            let worktree_pref = if worktree {
+                Some(true)
+            } else if no_worktree {
+                Some(false)
+            } else {
+                None
+            };
+            cmd::setup::run(yes, worktree_pref)
+        }
         Commands::Scope(args) => match args.command {
             ScopeCommands::Show => cmd::scope::show(),
             ScopeCommands::Add { mode, patterns } => cmd::scope::add(&patterns, mode),

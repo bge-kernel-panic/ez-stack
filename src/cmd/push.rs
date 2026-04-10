@@ -74,8 +74,13 @@ pub fn run(
             } else {
                 None
             };
-            let outcome = mutation_guard::commit_with_guard(msg, stage_mode, false, &[])?
-                .expect("commit_with_guard returns Some when --if-changed is false");
+            let outcome = mutation_guard::commit_with_guard(
+                mutation_guard::CommitMethod::Message(msg),
+                stage_mode,
+                false,
+                &[],
+            )?
+            .expect("commit_with_guard returns Some when --if-changed is false");
             commit_scope_defined = outcome.scope.scope_defined;
             commit_scope_mode = outcome.scope.scope_mode.clone();
             commit_out_of_scope_files = outcome.scope.out_of_scope_files.clone();

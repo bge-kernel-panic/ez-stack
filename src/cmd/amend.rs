@@ -1,12 +1,12 @@
 use anyhow::{Result, bail};
 
-use crate::cmd::rebase_conflict;
+use crate::cmd::restack_children;
 use crate::error::EzError;
 use crate::git;
 use crate::stack::StackState;
 use crate::ui;
 
-pub fn run(message: Option<&str>, all: bool) -> Result<()> {
+pub fn run(message: Option<&str>, all: bool, verbose: bool) -> Result<()> {
     let mut state = StackState::load()?;
     if let Some(root) = git::current_linked_worktree_root()? {
         ui::linked_worktree_warning(&root);
@@ -33,7 +33,11 @@ pub fn run(message: Option<&str>, all: bool) -> Result<()> {
 
     let before = git::rev_parse("HEAD")?;
 
-    git::commit_amend(message)?;
+    if let Some(msg) = message {
+        git::commit_amend(msg)?;
+    } else if !git::commit_amend_interactive(verbose)? {
+        return Ok(());
+    }
 
     let after = git::rev_parse("HEAD")?;
     let short_after = &after[..after.len().min(7)];
@@ -59,45 +63,7 @@ pub fn run(message: Option<&str>, all: bool) -> Result<()> {
         "deletions": del,
     }));
 
-    // Auto-restack children of the current branch.
-    let current_head = after;
-    let children = state.children_of(&current);
+    restack_children::restack_children(&mut state, &current, &after, "amend")?;
 
-    let current_root = git::repo_root()?;
-
-    for child_name in &children {
-        // Guard FIRST — before extracting old_parent_head.
-        if let Ok(Some(_wt_path)) = git::branch_checked_out_elsewhere(child_name, &current_root) {
-            ui::info(&format!("Skipped `{child_name}` (in worktree)"));
-            continue;
-        }
-
-        let old_parent_head = state.get_branch(child_name)?.parent_head.clone();
-
-        let sp = ui::spinner(&format!("Restacking `{child_name}`..."));
-        let outcome = git::rebase_onto(&current_head, &old_parent_head, child_name)?;
-        sp.finish_and_clear();
-
-        match outcome {
-            git::RebaseOutcome::RebasingComplete => {
-                let child = state.get_branch_mut(child_name)?;
-                child.parent_head = current_head.clone();
-                ui::info(&format!("Restacked `{child_name}`"));
-            }
-            git::RebaseOutcome::Conflict(conflict) => {
-                git::checkout(&current)?;
-                state.save()?;
-                rebase_conflict::report("amend", child_name, &current, &conflict, "ez restack");
-                bail!(EzError::RebaseConflict(child_name.clone()));
-            }
-        }
-    }
-
-    // Return to the original branch after restacking (only if we may have moved).
-    if !children.is_empty() {
-        git::checkout(&current)?;
-    }
-
-    state.save()?;
     Ok(())
 }

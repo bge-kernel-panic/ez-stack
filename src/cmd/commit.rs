@@ -1,15 +1,15 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use crate::cmd::mutation_guard;
-use crate::cmd::mutation_guard::StageMode;
-use crate::cmd::rebase_conflict;
-use crate::error::EzError;
+use crate::cmd::mutation_guard::{CommitMethod, StageMode};
+use crate::cmd::restack_children;
 use crate::git;
 use crate::stack::StackState;
 use crate::ui;
 
 pub fn run(
-    message: &str,
+    message: Option<&str>,
+    verbose: bool,
     all: bool,
     all_files: bool,
     if_changed: bool,
@@ -26,7 +26,11 @@ pub fn run(
     } else {
         None
     };
-    let Some(outcome) = mutation_guard::commit_with_guard(message, stage_mode, if_changed, paths)?
+    let method = match message {
+        Some(msg) => CommitMethod::Message(msg),
+        None => CommitMethod::Interactive { verbose },
+    };
+    let Some(outcome) = mutation_guard::commit_with_guard(method, stage_mode, if_changed, paths)?
     else {
         return Ok(());
     };
@@ -35,7 +39,10 @@ pub fn run(
     let before = outcome.before;
     let after = outcome.after;
     let short_after = &after[..after.len().min(7)];
-    let subject = message.lines().next().unwrap_or(message);
+    let subject = match message {
+        Some(msg) => msg.lines().next().unwrap_or(msg).to_string(),
+        None => git::head_subject().unwrap_or_default(),
+    };
     ui::success(&format!(
         "Committed {short_after} on `{current}`: {subject}"
     ));
@@ -63,50 +70,7 @@ pub fn run(
         "out_of_scope_files": outcome.scope.out_of_scope_files,
     }));
 
-    // Auto-restack children so they stay on top of the new HEAD.
-    let new_head = after;
-    let children = state.children_of(&current);
-
-    let current_root = git::repo_root()?;
-    let mut restacked_count = 0;
-
-    for child in &children {
-        // Guard FIRST — before extracting old_base (avoids unused-variable warning when skipping).
-        if let Ok(Some(_wt_path)) = git::branch_checked_out_elsewhere(child, &current_root) {
-            ui::info(&format!("Skipped `{child}` (in worktree)"));
-            continue;
-        }
-
-        let meta = state.get_branch(child)?;
-        let old_base = meta.parent_head.clone();
-
-        ui::info(&format!("Restacking `{child}`..."));
-        match git::rebase_onto(&new_head, &old_base, child)? {
-            git::RebaseOutcome::RebasingComplete => {}
-            git::RebaseOutcome::Conflict(conflict) => {
-                // Save progress so the user can fix conflicts and continue with `ez restack`.
-                state.save()?;
-                git::checkout(&current)?;
-                rebase_conflict::report("commit", child, &current, &conflict, "ez restack");
-                bail!(EzError::RebaseConflict(child.clone()));
-            }
-        }
-
-        let meta = state.get_branch_mut(child)?;
-        meta.parent_head = new_head.clone();
-        restacked_count += 1;
-    }
-
-    // After restacking we may be on a child branch; return to the original.
-    if !children.is_empty() {
-        git::checkout(&current)?;
-    }
-
-    state.save()?;
-
-    if restacked_count > 0 {
-        ui::info(&format!("Restacked {restacked_count} child branch(es)"));
-    }
+    restack_children::restack_children(&mut state, &current, &after, "commit")?;
 
     Ok(())
 }
