@@ -72,4 +72,19 @@ mod tests {
         assert_eq!(state.trunk, "main");
         assert_eq!(state.remote, "origin");
     }
+
+    #[test]
+    fn init_state_is_visible_from_nested_subdirectory() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("init-subdir");
+        let _cwd = CwdGuard::enter(&repo);
+
+        run(None).expect("init should succeed");
+        std::fs::create_dir_all(repo.join("backend/api")).expect("create nested dirs");
+        let _subdir = CwdGuard::enter(&repo.join("backend/api"));
+
+        let state = StackState::load().expect("load state from subdir");
+        assert_eq!(state.trunk, "main");
+        assert_eq!(state.remote, "origin");
+    }
 }

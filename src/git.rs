@@ -536,18 +536,17 @@ pub fn stash_pop() -> Result<()> {
 
 /// Returns the path to the shared `.git` directory, even in linked worktrees.
 ///
-/// `git rev-parse --git-common-dir` returns the common git dir but may give a
-/// relative path in the main worktree. We resolve relative paths against
-/// `--show-toplevel` (always absolute) to handle subdirectory invocations correctly.
+/// `git rev-parse --git-common-dir` may return a relative path. That path is
+/// relative to the current working directory, not the repo root, so nested
+/// subdirectory invocations must resolve it against `std::env::current_dir()`.
 pub fn git_common_dir() -> Result<PathBuf> {
     let out = run_git(&["rev-parse", "--git-common-dir"])?;
     let p = PathBuf::from(&out);
     if p.is_absolute() {
         return Ok(p);
     }
-    // Relative path (e.g., ".git") — resolve against the worktree root.
-    let root = run_git(&["rev-parse", "--show-toplevel"])?;
-    Ok(PathBuf::from(root).join(p))
+    let cwd = std::env::current_dir()?;
+    Ok(cwd.join(p))
 }
 
 /// Information about a single git worktree.
@@ -1032,6 +1031,20 @@ exit 0
 
         worktree_remove_force(&wt_path).expect("remove worktree");
         worktree_prune().expect("prune");
+    }
+
+    #[test]
+    fn git_common_dir_resolves_from_nested_subdirectory() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("git-common-dir-subdir");
+        std::fs::create_dir_all(repo.join("backend/api")).expect("create nested dirs");
+        let _cwd = CwdGuard::enter(&repo.join("backend/api"));
+
+        assert_eq!(
+            std::fs::canonicalize(git_common_dir().expect("git common dir"))
+                .expect("canonicalized common dir"),
+            std::fs::canonicalize(repo.join(".git")).expect("canonicalized repo git dir")
+        );
     }
 
     #[test]
