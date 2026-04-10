@@ -23,7 +23,7 @@ curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez
 mv ez /usr/local/bin/
 
 # Linux (x86_64)
-curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/bge-kernel-panic/ez-stack/releases/latest/download/ez-x86_64-unknown-linux-musl.tar.gz | tar xz
 mv ez /usr/local/bin/
 
 # Then:
@@ -31,10 +31,13 @@ ez setup --yes
 ez init
 ```
 
-Or install from source via [crates.io](https://crates.io/crates/ez-stack):
+Or build from source:
 
 ```bash
-cargo install ez-stack
+git clone https://github.com/bge-kernel-panic/ez-stack.git
+cd ez-stack
+cargo build --release
+cp target/release/ez /usr/local/bin/
 ```
 
 ## The 4 Commands
