@@ -369,4 +369,69 @@ mod tests {
             "should be on main after switch"
         );
     }
+
+    #[test]
+    fn switch_to_existing_worktree_does_not_create_another() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-existing-wt");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let parent_head = git::rev_parse("main").expect("main head");
+        git::create_branch_at("feat/test", "main").expect("create branch");
+
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/test", "main", &parent_head, None, None);
+        state.save().expect("save state");
+
+        // Create the worktree manually first.
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        git::worktree_add(&wt_path, "feat/test").expect("manual worktree add");
+
+        // Build worktree map — feat/test SHOULD be in it now.
+        let wt_map = worktree_map();
+        assert!(
+            wt_map.contains_key("feat/test"),
+            "feat/test should be in worktree map"
+        );
+
+        // switch_to should succeed and NOT create a second worktree.
+        switch_to(&state, "feat/test", &wt_map).expect("switch should succeed");
+
+        // Only one worktree for feat/test should exist.
+        let worktrees = git::worktree_list().expect("worktree list");
+        let wt_count = worktrees
+            .iter()
+            .filter(|wt| wt.branch.as_deref() == Some("feat/test"))
+            .count();
+        assert_eq!(wt_count, 1, "should have exactly one worktree for feat/test");
+    }
+
+    #[test]
+    fn switch_to_unmanaged_branch_falls_through_to_checkout() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-unmanaged");
+        let _cwd = CwdGuard::enter(&repo);
+
+        git::create_branch_at("scratch", "main").expect("create scratch");
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+
+        let wt_map = worktree_map();
+
+        // Unmanaged branch not in worktree map should do plain checkout.
+        switch_to(&state, "scratch", &wt_map).expect("switch should succeed");
+        assert_eq!(
+            git::current_branch().expect("branch"),
+            "scratch",
+            "should be on scratch after switch"
+        );
+
+        // No worktree should have been created.
+        let wt_path = git::worktree_path("scratch").expect("worktree path");
+        assert!(
+            !std::path::Path::new(&wt_path).exists(),
+            "no worktree should be created for unmanaged branch"
+        );
+    }
 }
