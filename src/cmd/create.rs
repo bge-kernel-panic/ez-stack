@@ -94,8 +94,9 @@ pub fn run(
     };
 
     // Decide whether to create a worktree.
-    // Worktree mode: default when no --from and no --no-worktree.
-    let use_worktree = !no_worktree && from.is_none();
+    // Worktree mode is the default — only skip when --no-worktree is explicit.
+    // --from controls which branch is the parent, not whether a worktree is created.
+    let use_worktree = !no_worktree;
 
     if use_worktree {
         // Worktree creation path: create branch + worktree.
@@ -117,7 +118,11 @@ pub fn run(
             return Err(e);
         }
 
-        ui::success(&format!("Created `{name}` → {wt_path}"));
+        if from.is_some() {
+            ui::success(&format!("Created `{name}` from `{parent}` → {wt_path}"));
+        } else {
+            ui::success(&format!("Created `{name}` → {wt_path}"));
+        }
         ui::hint(&worktree_edit_hint(&wt_path));
 
         hooks::emit_hook("post-create", hook);
@@ -133,35 +138,19 @@ pub fn run(
         }));
 
         println!("{wt_path}");
-    } else if from.is_some() {
-        // Create at the tip of --from without switching branches.
+    } else {
+        // --no-worktree: create branch only, no worktree, no checkout.
         git::create_branch_at(name, &parent_head)?;
         state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
         if let Err(e) = state.save() {
             let _ = git::delete_branch(name, true);
             return Err(e);
         }
-        ui::success(&format!("Created `{name}` from `{parent}`"));
-
-        hooks::emit_hook("post-create", hook);
-
-        ui::receipt(&serde_json::json!({
-            "cmd": "create",
-            "branch": name,
-            "parent": parent,
-            "head": &parent_head[..parent_head.len().min(7)],
-            "scope_defined": scope.is_some(),
-            "scope_mode": scope_mode.map(scope_mode_str),
-        }));
-    } else {
-        // --no-worktree: original behavior — create and switch.
-        git::create_branch(name)?;
-        state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
-        if let Err(e) = state.save() {
-            let _ = git::delete_branch(name, true);
-            return Err(e);
+        if from.is_some() {
+            ui::success(&format!("Created `{name}` from `{parent}`"));
+        } else {
+            ui::success(&format!("Created `{name}` on `{parent}`"));
         }
-        ui::success(&format!("Created `{name}` on `{parent}`"));
 
         hooks::emit_hook("post-create", hook);
 
@@ -284,6 +273,64 @@ mod tests {
             err.to_string()
                 .contains("current branch `scratch` is not tracked by ez"),
             "unexpected error: {err:#}"
+        );
+    }
+
+    #[test]
+    fn create_from_creates_worktree_by_default() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("create-from-worktree");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+
+        // ez create feat/test --from main should create a worktree.
+        run("feat/test", None, false, false, Some("main"), false, &[], None, None)
+            .expect("create with --from should succeed");
+
+        // Verify the branch exists.
+        assert!(git::branch_exists("feat/test"));
+
+        // Verify a worktree was created at .worktrees/feat-test.
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        assert!(
+            std::path::Path::new(&wt_path).exists(),
+            "worktree directory should exist at {wt_path}"
+        );
+
+        // Verify the worktree shows up in git worktree list.
+        let worktrees = git::worktree_list().expect("worktree list");
+        let has_wt = worktrees
+            .iter()
+            .any(|wt| wt.branch.as_deref() == Some("feat/test"));
+        assert!(has_wt, "feat/test should appear in git worktree list");
+
+        // Verify the branch is stacked correctly on main.
+        let reloaded = StackState::load().expect("reload state");
+        let meta = reloaded.get_branch("feat/test").expect("branch meta");
+        assert_eq!(meta.parent, "main");
+    }
+
+    #[test]
+    fn create_from_no_worktree_skips_worktree() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("create-from-no-wt");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+
+        // ez create feat/test --from main --no-worktree should NOT create a worktree.
+        run("feat/test", None, false, false, Some("main"), true, &[], None, None)
+            .expect("create with --from --no-worktree should succeed");
+
+        assert!(git::branch_exists("feat/test"));
+
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        assert!(
+            !std::path::Path::new(&wt_path).exists(),
+            "worktree directory should NOT exist when --no-worktree is used"
         );
     }
 

@@ -78,7 +78,17 @@ pub(crate) fn switch_to(
         ui::success(&format!("Switching to `{target}` in worktree `{wt_path}`"));
         ui::hint(&worktree_edit_hint(wt_path));
         println!("{wt_path}");
+    } else if state.is_managed(target) {
+        // Managed branch without a worktree — create one and cd into it.
+        let wt_path = git::worktree_path(target)?;
+        git::worktree_add(&wt_path, target)?;
+        ui::success(&format!(
+            "Created worktree for `{target}` → {wt_path}"
+        ));
+        ui::hint(&worktree_edit_hint(&wt_path));
+        println!("{wt_path}");
     } else {
+        // Trunk or unmanaged — plain checkout.
         git::checkout(target)?;
         ui::success(&format!("Switched to `{target}`"));
     }
@@ -296,5 +306,67 @@ mod tests {
             Some(&"/repo/.worktrees/feat-x".to_string())
         );
         assert!(!wt_map.contains_key("detached"));
+    }
+
+    #[test]
+    fn switch_to_creates_worktree_for_managed_branch_without_one() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-auto-worktree");
+        let _cwd = CwdGuard::enter(&repo);
+
+        // Set up a managed branch without a worktree.
+        let parent_head = git::rev_parse("main").expect("main head");
+        git::create_branch_at("feat/test", "main").expect("create branch");
+
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/test", "main", &parent_head, None, None);
+        state.save().expect("save state");
+
+        // Build worktree map — feat/test should NOT be in it yet.
+        let wt_map = worktree_map();
+        assert!(
+            !wt_map.contains_key("feat/test"),
+            "feat/test should not be in worktree map before switch"
+        );
+
+        // switch_to should create the worktree.
+        switch_to(&state, "feat/test", &wt_map).expect("switch should succeed");
+
+        // Verify the worktree was created.
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        assert!(
+            std::path::Path::new(&wt_path).exists(),
+            "worktree directory should exist at {wt_path}"
+        );
+
+        // Verify it shows in git worktree list.
+        let worktrees = git::worktree_list().expect("worktree list");
+        let has_wt = worktrees
+            .iter()
+            .any(|wt| wt.branch.as_deref() == Some("feat/test"));
+        assert!(has_wt, "feat/test should appear in git worktree list");
+    }
+
+    #[test]
+    fn switch_to_trunk_does_plain_checkout() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-trunk-plain");
+        let _cwd = CwdGuard::enter(&repo);
+
+        // Create a temporary branch to switch away from main.
+        git::create_branch("temp-branch").expect("create temp");
+
+        let state = StackState::new("main".to_string());
+        state.save().expect("save state");
+
+        let wt_map = worktree_map();
+
+        // Switching to trunk should do a plain checkout, not create a worktree.
+        switch_to(&state, "main", &wt_map).expect("switch to trunk should succeed");
+        assert_eq!(
+            git::current_branch().expect("branch"),
+            "main",
+            "should be on main after switch"
+        );
     }
 }
