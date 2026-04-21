@@ -172,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "ez-stack"
-version = "0.2.23-bge"
+version = "0.2.24-bge"
 dependencies = [
  "anyhow",
  "clap",
