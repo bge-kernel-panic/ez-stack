@@ -37,6 +37,22 @@ fn config_path() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".ez/config.json"))
 }
 
+/// Resolve whether an operation should use a worktree, combining explicit CLI
+/// flags with the persisted default. `--worktree` wins over `--no-worktree`
+/// wins over the `create.worktree` config value (default `true`).
+///
+/// `worktree` and `no_worktree` should already be mutually exclusive at the
+/// clap layer (via `conflicts_with`), so both-true is a caller bug.
+pub fn resolve_worktree(worktree: bool, no_worktree: bool) -> bool {
+    if worktree {
+        true
+    } else if no_worktree {
+        false
+    } else {
+        Config::load().create_worktree()
+    }
+}
+
 /// Write the `create.worktree` setting to `~/.ez/config.json`.
 pub fn set_create_worktree(value: bool) -> anyhow::Result<()> {
     let path = config_path()
@@ -78,6 +94,13 @@ mod tests {
     fn parse_empty_json() {
         let config: Config = serde_json::from_str("{}").unwrap();
         assert!(config.create_worktree());
+    }
+
+    #[test]
+    fn resolve_worktree_flags_override_config() {
+        // Explicit flags short-circuit before config is read.
+        assert!(resolve_worktree(true, false));
+        assert!(!resolve_worktree(false, true));
     }
 
     #[test]

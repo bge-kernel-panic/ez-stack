@@ -260,16 +260,48 @@ Examples:
     Restack,
 
     /// Move up one branch in the stack
-    Up,
+    Up {
+        /// Force worktree creation for the target branch (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
+        /// Plain checkout — do not create a worktree for the target branch
+        #[arg(long)]
+        no_worktree: bool,
+    },
 
     /// Move down one branch in the stack (toward trunk)
-    Down,
+    Down {
+        /// Force worktree creation for the target branch (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
+        /// Plain checkout — do not create a worktree for the target branch
+        #[arg(long)]
+        no_worktree: bool,
+    },
 
     /// Move to the top of the stack
-    Top,
+    Top {
+        /// Force worktree creation for the target branch (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
+        /// Plain checkout — do not create a worktree for the target branch
+        #[arg(long)]
+        no_worktree: bool,
+    },
 
     /// Move to the bottom of the stack (first branch above trunk)
-    Bottom,
+    Bottom {
+        /// Force worktree creation for the target branch (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
+        /// Plain checkout — do not create a worktree for the target branch
+        #[arg(long)]
+        no_worktree: bool,
+    },
 
     /// Switch to a branch by name or PR number (interactive if no argument)
     #[command(
@@ -277,11 +309,21 @@ Examples:
         after_help = "\
 Examples:
   ez switch feat/auth
-  ez switch 42"
+  ez switch 42
+  ez switch feat/auth --no-worktree
+  ez switch feat/auth --worktree"
     )]
     Switch {
         /// Branch name or PR number to switch to directly
         name: Option<String>,
+
+        /// Force worktree creation for the target branch (overrides config default)
+        #[arg(long, conflicts_with = "no_worktree")]
+        worktree: bool,
+
+        /// Plain checkout — do not create a worktree for the target branch
+        #[arg(long)]
+        no_worktree: bool,
     },
 
     /// Show the visual stack tree with PR status
@@ -744,6 +786,72 @@ mod tests {
                 assert!(yes);
             }
             _ => panic!("expected worktree delete command"),
+        }
+    }
+
+    #[test]
+    fn parses_navigation_worktree_flags() {
+        for cmd in &["up", "down", "top", "bottom"] {
+            let cli = Cli::try_parse_from(["ez", cmd, "--no-worktree"])
+                .unwrap_or_else(|_| panic!("parse `ez {cmd} --no-worktree`"));
+            match cli.command {
+                Commands::Up {
+                    worktree,
+                    no_worktree,
+                }
+                | Commands::Down {
+                    worktree,
+                    no_worktree,
+                }
+                | Commands::Top {
+                    worktree,
+                    no_worktree,
+                }
+                | Commands::Bottom {
+                    worktree,
+                    no_worktree,
+                } => {
+                    assert!(!worktree);
+                    assert!(no_worktree);
+                }
+                _ => panic!("expected navigation command for {cmd}"),
+            }
+        }
+
+        // --worktree and --no-worktree are mutually exclusive.
+        assert!(Cli::try_parse_from(["ez", "up", "--worktree", "--no-worktree"]).is_err());
+    }
+
+    #[test]
+    fn parses_switch_worktree_flags() {
+        let cli = Cli::try_parse_from(["ez", "switch", "feat/auth", "--worktree"])
+            .expect("parse switch --worktree");
+        match cli.command {
+            Commands::Switch {
+                name,
+                worktree,
+                no_worktree,
+            } => {
+                assert_eq!(name.as_deref(), Some("feat/auth"));
+                assert!(worktree);
+                assert!(!no_worktree);
+            }
+            _ => panic!("expected switch command"),
+        }
+
+        let cli = Cli::try_parse_from(["ez", "checkout", "feat/auth", "--no-worktree"])
+            .expect("parse checkout --no-worktree (alias)");
+        match cli.command {
+            Commands::Switch {
+                name,
+                worktree,
+                no_worktree,
+            } => {
+                assert_eq!(name.as_deref(), Some("feat/auth"));
+                assert!(!worktree);
+                assert!(no_worktree);
+            }
+            _ => panic!("expected switch command"),
         }
     }
 

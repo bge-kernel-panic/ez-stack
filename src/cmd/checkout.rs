@@ -1,6 +1,7 @@
 use anyhow::Result;
 use dialoguer::Select;
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::error::EzError;
 use crate::git;
@@ -20,6 +21,12 @@ fn branch_worktree_map(
 /// Build a map of branch name → worktree path for branches in worktrees.
 pub(crate) fn worktree_map() -> HashMap<String, String> {
     branch_worktree_map(git::worktree_list().unwrap_or_default())
+}
+
+/// True if `path` exists on disk as a directory. Stale worktree admin entries can
+/// linger in `git worktree list` after the directory is manually deleted.
+fn worktree_path_exists(path: &str) -> bool {
+    Path::new(path).is_dir()
 }
 
 fn worktree_edit_hint(wt_path: &str) -> String {
@@ -66,19 +73,36 @@ pub(crate) fn stale_switch_target_warning(
 }
 
 /// Switch to a branch. If it's in a worktree, print the path to stdout for cd.
+///
+/// When `create_worktree_if_missing` is true and the target is a managed branch
+/// without a worktree, a new linked worktree is created. When false, we fall
+/// back to a plain `git checkout` — honoring the user's `create.worktree = false`
+/// configuration for navigation commands as well as `ez create`.
 pub(crate) fn switch_to(
     state: &StackState,
     target: &str,
     wt_map: &HashMap<String, String>,
+    create_worktree_if_missing: bool,
 ) -> Result<()> {
     let stale_warning = stale_switch_target_warning(state, target)?;
 
-    if let Some(wt_path) = wt_map.get(target) {
+    // If the map claims this branch has a worktree but the directory is gone,
+    // the admin entry is stale — prune and behave as if no worktree exists.
+    let live_wt_path = wt_map.get(target).and_then(|p| {
+        if worktree_path_exists(p) {
+            Some(p.clone())
+        } else {
+            let _ = git::worktree_prune();
+            None
+        }
+    });
+
+    if let Some(wt_path) = live_wt_path {
         // Branch is in a worktree — print path to stdout for shell wrapper to cd.
         ui::success(&format!("Switching to `{target}` in worktree `{wt_path}`"));
-        ui::hint(&worktree_edit_hint(wt_path));
+        ui::hint(&worktree_edit_hint(&wt_path));
         println!("{wt_path}");
-    } else if state.is_managed(target) {
+    } else if state.is_managed(target) && create_worktree_if_missing {
         // Managed branch without a worktree — create one and cd into it.
         let wt_path = git::worktree_path(target)?;
         git::worktree_add(&wt_path, target)?;
@@ -86,7 +110,7 @@ pub(crate) fn switch_to(
         ui::hint(&worktree_edit_hint(&wt_path));
         println!("{wt_path}");
     } else {
-        // Trunk or unmanaged — plain checkout.
+        // Trunk, unmanaged, or worktree-disabled config — plain checkout.
         git::checkout(target)?;
         ui::success(&format!("Switched to `{target}`"));
     }
@@ -99,7 +123,7 @@ pub(crate) fn switch_to(
     Ok(())
 }
 
-pub fn run(name: Option<&str>) -> Result<()> {
+pub fn run(name: Option<&str>, create_worktree_if_missing: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
     let wt_map = worktree_map();
@@ -129,7 +153,7 @@ pub fn run(name: Option<&str>) -> Result<()> {
             return Ok(());
         }
 
-        switch_to(&state, &target, &wt_map)?;
+        switch_to(&state, &target, &wt_map, create_worktree_if_missing)?;
         return Ok(());
     }
 
@@ -182,7 +206,7 @@ pub fn run(name: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    switch_to(&state, selected, &wt_map)?;
+    switch_to(&state, selected, &wt_map, create_worktree_if_missing)?;
 
     Ok(())
 }
@@ -327,8 +351,8 @@ mod tests {
             "feat/test should not be in worktree map before switch"
         );
 
-        // switch_to should create the worktree.
-        switch_to(&state, "feat/test", &wt_map).expect("switch should succeed");
+        // switch_to should create the worktree (create_worktree=true).
+        switch_to(&state, "feat/test", &wt_map, true).expect("switch should succeed");
 
         // Verify the worktree was created.
         let wt_path = git::worktree_path("feat/test").expect("worktree path");
@@ -360,7 +384,7 @@ mod tests {
         let wt_map = worktree_map();
 
         // Switching to trunk should do a plain checkout, not create a worktree.
-        switch_to(&state, "main", &wt_map).expect("switch to trunk should succeed");
+        switch_to(&state, "main", &wt_map, true).expect("switch to trunk should succeed");
         assert_eq!(
             git::current_branch().expect("branch"),
             "main",
@@ -393,7 +417,7 @@ mod tests {
         );
 
         // switch_to should succeed and NOT create a second worktree.
-        switch_to(&state, "feat/test", &wt_map).expect("switch should succeed");
+        switch_to(&state, "feat/test", &wt_map, true).expect("switch should succeed");
 
         // Only one worktree for feat/test should exist.
         let worktrees = git::worktree_list().expect("worktree list");
@@ -421,7 +445,7 @@ mod tests {
         let wt_map = worktree_map();
 
         // Unmanaged branch not in worktree map should do plain checkout.
-        switch_to(&state, "scratch", &wt_map).expect("switch should succeed");
+        switch_to(&state, "scratch", &wt_map, true).expect("switch should succeed");
         assert_eq!(
             git::current_branch().expect("branch"),
             "scratch",
@@ -433,6 +457,80 @@ mod tests {
         assert!(
             !std::path::Path::new(&wt_path).exists(),
             "no worktree should be created for unmanaged branch"
+        );
+    }
+
+    #[test]
+    fn switch_to_plain_checkout_when_create_worktree_disabled() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-disabled-worktree");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let parent_head = git::rev_parse("main").expect("main head");
+        git::create_branch_at("feat/test", "main").expect("create branch");
+
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/test", "main", &parent_head, None, None);
+        state.save().expect("save state");
+
+        // Switch back to main first so checkout has work to do.
+        git::checkout("main").expect("checkout main");
+
+        let wt_map = worktree_map();
+
+        // With create_worktree_if_missing=false, should do plain checkout.
+        switch_to(&state, "feat/test", &wt_map, false).expect("switch should succeed");
+
+        assert_eq!(
+            git::current_branch().expect("branch"),
+            "feat/test",
+            "should be on feat/test after plain checkout"
+        );
+
+        // No linked worktree directory should have been created.
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        assert!(
+            !std::path::Path::new(&wt_path).exists(),
+            "no worktree should be created when config disables it (at {wt_path})"
+        );
+    }
+
+    #[test]
+    fn switch_to_ignores_stale_worktree_entry_and_creates_when_enabled() {
+        let _guard = take_env_lock();
+        let repo = init_git_repo("checkout-stale-worktree");
+        let _cwd = CwdGuard::enter(&repo);
+
+        let parent_head = git::rev_parse("main").expect("main head");
+        git::create_branch_at("feat/test", "main").expect("create branch");
+
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/test", "main", &parent_head, None, None);
+        state.save().expect("save state");
+
+        // Create a worktree, then manually delete its directory to simulate a
+        // stale admin entry (user did `rm -rf` without `git worktree remove`).
+        let wt_path = git::worktree_path("feat/test").expect("worktree path");
+        git::worktree_add(&wt_path, "feat/test").expect("worktree add");
+        std::fs::remove_dir_all(&wt_path).expect("manually nuke worktree dir");
+
+        // The admin entry lingers — wt_map still reports the branch as in a worktree.
+        let wt_map = worktree_map();
+        assert!(
+            wt_map.contains_key("feat/test"),
+            "precondition: stale worktree entry should still appear in git worktree list"
+        );
+
+        // With create_worktree_if_missing=false, the stale entry should be ignored
+        // and we should fall back to plain checkout instead of cd'ing into a
+        // non-existent directory.
+        git::checkout("main").expect("checkout main");
+        switch_to(&state, "feat/test", &wt_map, false)
+            .expect("switch past stale worktree entry should succeed");
+        assert_eq!(
+            git::current_branch().expect("branch"),
+            "feat/test",
+            "should have done a plain checkout to feat/test"
         );
     }
 }

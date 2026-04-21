@@ -126,13 +126,7 @@ fn run(cli: Cli) -> Result<()> {
             scope_mode,
             hook,
         } => {
-            let effective_no_worktree = if worktree {
-                false
-            } else if no_worktree {
-                true
-            } else {
-                !config::Config::load().create_worktree()
-            };
+            let effective_no_worktree = !config::resolve_worktree(worktree, no_worktree);
             cmd::create::run(
                 &name,
                 message.as_deref(),
@@ -211,11 +205,30 @@ fn run(cli: Cli) -> Result<()> {
             force,
         } => cmd::sync::run(dry_run, autostash, force),
         Commands::Restack => cmd::restack::run(),
-        Commands::Up => cmd::navigate::up(),
-        Commands::Down => cmd::navigate::down(),
-        Commands::Top => cmd::navigate::top(),
-        Commands::Bottom => cmd::navigate::bottom(),
-        Commands::Switch { name } => cmd::checkout::run(name.as_deref()),
+        Commands::Up {
+            worktree,
+            no_worktree,
+        } => cmd::navigate::up(config::resolve_worktree(worktree, no_worktree)),
+        Commands::Down {
+            worktree,
+            no_worktree,
+        } => cmd::navigate::down(config::resolve_worktree(worktree, no_worktree)),
+        Commands::Top {
+            worktree,
+            no_worktree,
+        } => cmd::navigate::top(config::resolve_worktree(worktree, no_worktree)),
+        Commands::Bottom {
+            worktree,
+            no_worktree,
+        } => cmd::navigate::bottom(config::resolve_worktree(worktree, no_worktree)),
+        Commands::Switch {
+            name,
+            worktree,
+            no_worktree,
+        } => cmd::checkout::run(
+            name.as_deref(),
+            config::resolve_worktree(worktree, no_worktree),
+        ),
         Commands::List { json } => cmd::list::run(json),
         Commands::Log { json } => cmd::log::run(json),
         Commands::Status { json } => cmd::status::run(json),

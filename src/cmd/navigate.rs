@@ -44,13 +44,13 @@ fn bottom_target(state: &StackState, current: &str) -> Result<String> {
     Ok(bottom)
 }
 
-pub fn up() -> Result<()> {
+pub fn up(create_worktree_if_missing: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
     let children = state.children_of(&current);
     let target = up_target(&children)?;
-    switch_to(&state, &target, &worktree_map())?;
+    switch_to(&state, &target, &worktree_map(), create_worktree_if_missing)?;
     ui::success(&format!(
         "Moved up: {} → {}",
         ui::branch_display(&current, false),
@@ -60,12 +60,12 @@ pub fn up() -> Result<()> {
     Ok(())
 }
 
-pub fn down() -> Result<()> {
+pub fn down(create_worktree_if_missing: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
     let parent = down_target(&state, &current)?;
-    switch_to(&state, &parent, &worktree_map())?;
+    switch_to(&state, &parent, &worktree_map(), create_worktree_if_missing)?;
     ui::success(&format!(
         "Moved down: {} → {}",
         ui::branch_display(&current, false),
@@ -75,12 +75,12 @@ pub fn down() -> Result<()> {
     Ok(())
 }
 
-pub fn top() -> Result<()> {
+pub fn top(create_worktree_if_missing: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
     let target = top_target(&state, &current)?;
-    switch_to(&state, &target, &worktree_map())?;
+    switch_to(&state, &target, &worktree_map(), create_worktree_if_missing)?;
     ui::success(&format!(
         "Jumped to top: {} → {}",
         ui::branch_display(&current, false),
@@ -90,12 +90,12 @@ pub fn top() -> Result<()> {
     Ok(())
 }
 
-pub fn bottom() -> Result<()> {
+pub fn bottom(create_worktree_if_missing: bool) -> Result<()> {
     let state = StackState::load()?;
     let current = git::current_branch()?;
 
     let target = bottom_target(&state, &current)?;
-    switch_to(&state, &target, &worktree_map())?;
+    switch_to(&state, &target, &worktree_map(), create_worktree_if_missing)?;
     ui::success(&format!(
         "Jumped to bottom: {} → {}",
         ui::branch_display(&current, false),
