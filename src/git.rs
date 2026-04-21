@@ -469,7 +469,7 @@ pub fn hard_reset_at(dir: &str, remote_ref: &str) -> Result<()> {
 }
 
 pub fn push(remote: &str, branch: &str, force: bool) -> Result<()> {
-    let mut args = vec!["push", remote, branch];
+    let mut args = vec!["push", "--set-upstream", remote, branch];
     if force {
         args.push("--force-with-lease");
     }
