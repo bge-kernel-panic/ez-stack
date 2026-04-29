@@ -139,17 +139,23 @@ pub fn run(
 
         println!("{wt_path}");
     } else {
-        // --no-worktree: create branch only, no worktree, no checkout.
+        // --no-worktree: create branch in the current checkout.
+        // Without --from, switch to it (like `git checkout -b`).
+        // With --from, leave HEAD where it is — --from means "create that
+        // branch but stay here".
         git::create_branch_at(name, &parent_head)?;
         state.add_branch(name, &parent, &parent_head, scope.clone(), scope_mode);
         if let Err(e) = state.save() {
             let _ = git::delete_branch(name, true);
             return Err(e);
         }
+        if from.is_none() {
+            git::checkout(name)?;
+        }
         if from.is_some() {
             ui::success(&format!("Created `{name}` from `{parent}`"));
         } else {
-            ui::success(&format!("Created `{name}` on `{parent}`"));
+            ui::success(&format!("Switched to `{name}` on `{parent}`"));
         }
 
         hooks::emit_hook("post-create", hook);
@@ -352,12 +358,19 @@ mod tests {
             !std::path::Path::new(&wt_path).exists(),
             "worktree directory should NOT exist when --no-worktree is used"
         );
+
+        // --from means "create without switching" — HEAD should stay on main.
+        assert_eq!(
+            git::current_branch().expect("branch"),
+            "main",
+            "should still be on main after --from --no-worktree create"
+        );
     }
 
     #[test]
-    fn create_no_worktree_without_from_does_not_switch_branch() {
+    fn create_no_worktree_without_from_switches_branch() {
         let _guard = take_env_lock();
-        let repo = init_git_repo("create-no-wt-no-switch");
+        let repo = init_git_repo("create-no-wt-switches");
         let _cwd = CwdGuard::enter(&repo);
 
         let state = StackState::new("main".to_string());
@@ -366,16 +379,17 @@ mod tests {
         // Should be on main before create.
         assert_eq!(git::current_branch().expect("branch"), "main");
 
-        // --no-worktree without --from should NOT switch to the new branch.
+        // --no-worktree without --from should switch to the new branch
+        // (like `git checkout -b`).
         run("feat/test", None, false, false, None, true, &[], None, None)
             .expect("create --no-worktree should succeed");
 
-        // Branch exists but we're still on main.
+        // Branch exists and we are now on it.
         assert!(git::branch_exists("feat/test"));
         assert_eq!(
             git::current_branch().expect("branch"),
-            "main",
-            "should still be on main after --no-worktree create"
+            "feat/test",
+            "should have switched to feat/test after --no-worktree create"
         );
     }
 

@@ -156,6 +156,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.2.19 | Canonicalize `ez skill install` under `.agents/skills` with safe link-or-copy compatibility targets, improve worktree-awareness messaging and status output, and teach agents when to use `-A`/`-Am` for untracked files |
 | 0.2.20 | Add non-interactive `ez merge --yes`, support `ez merge --stack` for linear stacks, and restore remote branch cleanup after REST-based merges |
 | 0.2.21-bge | `ez adopt` — register existing git branches into the stack; `ez commit`/`ez amend` open editor when `-m` is omitted (`-v` for verbose diff); config switched from TOML to JSON (dropped `toml` crate); extracted `restack_children` shared helper; release workflow adds Windows target, switches Linux to musl static builds, removes crates.io/PyPI publishing |
+| 0.2.26-bge | Fix: `ez create --no-worktree` (without `--from`) now switches to the new branch, restoring v0.2.0 semantics that were lost in c6dd2cb. |
 
 ---
 
