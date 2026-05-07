@@ -20,12 +20,17 @@ pub enum Commands {
     #[command(after_help = "\
 Examples:
   ez init
+  ez init --yes
   ez init --trunk main
   ez init --trunk develop")]
     Init {
         /// Trunk branch name (auto-detected if not provided)
         #[arg(long)]
         trunk: Option<String>,
+
+        /// Accept recommended defaults without prompting (for agents and scripts)
+        #[arg(short, long)]
+        yes: bool,
     },
 
     /// Adopt branches from GitHub PRs into the local stack
@@ -648,6 +653,19 @@ Examples:
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn parses_init_yes_flag() {
+        let cli = Cli::try_parse_from(["ez", "init", "--yes"]).expect("parse init --yes");
+
+        match cli.command {
+            Commands::Init { yes, trunk } => {
+                assert!(yes);
+                assert!(trunk.is_none());
+            }
+            _ => panic!("expected init command"),
+        }
+    }
 
     #[test]
     fn parses_commit_with_paths_after_double_dash() {

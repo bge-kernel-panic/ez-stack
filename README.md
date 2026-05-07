@@ -194,6 +194,7 @@ Intended workflow:
 
 | Command | Description |
 |---------|-------------|
+| `ez init --yes` | Initialize ez and accept recommended non-interactive defaults |
 | `ez setup --yes` | Configure shell integration |
 | `ez config list/get/set` | View or update repo settings such as `default_from`, `draft`, `no_pr`, and `rerere` |
 | `ez skill install` | Install the ez-workflow skill for AI agents |

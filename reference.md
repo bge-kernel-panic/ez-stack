@@ -84,6 +84,7 @@ Preferred workflow:
 
 | Intent | Command |
 |--------|---------|
+| Initialize ez non-interactively | `ez init --yes` |
 | Install skill in repo | `ez skill install` |
 | Shell integration | `ez setup --yes` |
 | List repo config | `ez config list` |
