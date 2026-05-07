@@ -1,5 +1,5 @@
 use anyhow::{Result, bail};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::EzError;
 use crate::git;
@@ -33,7 +33,7 @@ fn build_adopt_graph(trunk: &str, prs: &HashMap<String, github::PrInfo>) -> Vec<
     // whose own base chain leads to trunk.
     let mut valid: HashMap<String, AdoptCandidate> = HashMap::new();
 
-    fn is_rooted_in_trunk<'a>(
+    fn is_rooted_in_trunk(
         branch: &str,
         trunk: &str,
         open_prs: &HashMap<&str, &github::PrInfo>,
@@ -101,6 +101,51 @@ fn build_adopt_graph(trunk: &str, prs: &HashMap<String, github::PrInfo>) -> Vec<
     sorted
 }
 
+fn chain_to_trunk(
+    prs: &HashMap<String, github::PrInfo>,
+    trunk: &str,
+    branch: &str,
+) -> Option<Vec<String>> {
+    let mut chain = Vec::new();
+    let mut current = branch.to_string();
+    let mut seen = HashSet::new();
+
+    loop {
+        if current == trunk {
+            return Some(chain);
+        }
+        if !seen.insert(current.clone()) {
+            return None;
+        }
+
+        let pr = prs.get(&current)?;
+        chain.push(current.clone());
+        current = pr.base.clone();
+    }
+}
+
+fn filter_prs_for_requested_branches(
+    prs: &HashMap<String, github::PrInfo>,
+    trunk: &str,
+    branches: &[String],
+) -> HashMap<String, github::PrInfo> {
+    let mut branch_set = HashSet::new();
+    for branch in branches {
+        if let Some(chain) = chain_to_trunk(prs, trunk, branch) {
+            branch_set.extend(chain);
+        }
+    }
+
+    prs.iter()
+        .filter(|(branch, _)| branch_set.contains(*branch))
+        .map(|(branch, pr)| (branch.clone(), pr.clone()))
+        .collect()
+}
+
+fn adoption_parent_head(branch: &str, parent: &str) -> Result<String> {
+    git::merge_base(branch, parent)
+}
+
 pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
     let mut state = StackState::load().or_else(|_| {
         // If ez isn't initialized, try to auto-detect trunk and init.
@@ -146,28 +191,7 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
             .unwrap();
 
         // Build the full chain from this PR down to trunk.
-        let mut chain_branches: Vec<String> = Vec::new();
-        let mut current = target_branch.clone();
-        let mut seen = std::collections::HashSet::new();
-        loop {
-            if current == state.trunk || !seen.insert(current.clone()) {
-                break;
-            }
-            chain_branches.push(current.clone());
-            if let Some(pr) = all_prs.get(&current) {
-                current = pr.base.clone();
-            } else {
-                break;
-            }
-        }
-
-        // Filter graph to only include branches in this chain.
-        let chain_set: std::collections::HashSet<&str> =
-            chain_branches.iter().map(|s| s.as_str()).collect();
-        let filtered: HashMap<String, github::PrInfo> = all_prs
-            .into_iter()
-            .filter(|(b, _)| chain_set.contains(b.as_str()))
-            .collect();
+        let filtered = filter_prs_for_requested_branches(&all_prs, &state.trunk, &[target_branch]);
 
         let graph = build_adopt_graph(&state.trunk, &filtered);
         if graph.is_empty() {
@@ -179,17 +203,11 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
         }
         graph
     } else if !specific_branches.is_empty() {
-        // Filter to specific branches.
-        let branch_set: std::collections::HashSet<&str> =
-            specific_branches.iter().map(|s| s.as_str()).collect();
-        let filtered: HashMap<String, github::PrInfo> = all_prs
-            .into_iter()
-            .filter(|(b, _)| branch_set.contains(b.as_str()))
-            .collect();
+        let filtered = filter_prs_for_requested_branches(&all_prs, &state.trunk, specific_branches);
 
         // Check for branches that have no PRs.
         for branch in specific_branches {
-            if !filtered.contains_key(branch.as_str()) {
+            if !all_prs.contains_key(branch.as_str()) {
                 ui::warn(&format!("Branch `{branch}` has no open PR — skipping"));
             }
         }
@@ -250,28 +268,23 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
         // Ensure the local branch exists. Fetch from remote if needed.
         if !git::branch_exists(&candidate.branch) {
             ui::info(&format!("Fetching `{}` from remote...", candidate.branch));
-            git::fetch_branch(&state.remote, &candidate.branch)?;
+            let pr_ref = git::fetch_pr_head(&state.remote, candidate.pr_number)?;
+            git::create_branch_at(&candidate.branch, &pr_ref)?;
+        }
 
-            // Create local tracking branch.
-            let remote_ref = format!("{}/{}", state.remote, candidate.branch);
-            if git::branch_exists(&remote_ref) {
-                git::create_branch_at(&candidate.branch, &remote_ref)?;
-            } else {
+        // Record the exact parent commit this branch is based on.
+        let parent = &candidate.base;
+        let parent_head = match adoption_parent_head(&candidate.branch, parent) {
+            Ok(parent_head) => parent_head,
+            Err(_) => {
                 ui::warn(&format!(
-                    "Could not fetch `{}` — skipping",
+                    "Could not resolve parent `{parent}` for `{}` — skipping",
                     candidate.branch
                 ));
                 skipped += 1;
                 continue;
             }
-        }
-
-        // Resolve parent head.
-        let parent = &candidate.base;
-        let parent_head = git::rev_parse(parent).unwrap_or_else(|_| {
-            // Parent might be a remote branch.
-            git::rev_parse(&format!("{}/{}", state.remote, parent)).unwrap_or_default()
-        });
+        };
 
         if parent_head.is_empty() {
             ui::warn(&format!(
@@ -516,5 +529,54 @@ mod tests {
         // Only feat/a should be adoptable; feat/c can't reach trunk through feat/b.
         assert_eq!(graph.len(), 1);
         assert_eq!(graph[0].branch, "feat/a");
+    }
+
+    #[test]
+    fn requested_branch_chain_includes_ancestors() {
+        let mut prs = HashMap::new();
+        let (k, v) = make_pr("feat/a", "main", 1);
+        prs.insert(k, v);
+        let (k, v) = make_pr("feat/b", "feat/a", 2);
+        prs.insert(k, v);
+        let (k, v) = make_pr("feat/c", "feat/b", 3);
+        prs.insert(k, v);
+
+        let filtered = filter_prs_for_requested_branches(&prs, "main", &["feat/c".to_string()]);
+        let graph = build_adopt_graph("main", &filtered);
+        let names: Vec<&str> = graph.iter().map(|c| c.branch.as_str()).collect();
+
+        assert_eq!(names, vec!["feat/a", "feat/b", "feat/c"]);
+    }
+
+    #[test]
+    fn adoption_parent_head_uses_merge_base_not_parent_tip() {
+        use crate::test_support::{CwdGuard, init_git_repo, take_env_lock, write_file};
+
+        let _guard = take_env_lock();
+        let repo = init_git_repo("adopt-parent-head");
+        let _cwd = CwdGuard::enter(&repo);
+
+        git::create_branch("feat/base").expect("create base");
+        write_file(&repo, "base.txt", "base\n");
+        git::add_all_including_untracked().expect("stage base");
+        git::commit("base commit").expect("commit base");
+        let original_base = git::rev_parse("feat/base").expect("base sha");
+
+        git::create_branch("feat/child").expect("create child");
+        write_file(&repo, "child.txt", "child\n");
+        git::add_all_including_untracked().expect("stage child");
+        git::commit("child commit").expect("commit child");
+
+        git::checkout("feat/base").expect("checkout base");
+        write_file(&repo, "base-2.txt", "base 2\n");
+        git::add_all_including_untracked().expect("stage base advance");
+        git::commit("advance base").expect("commit base advance");
+        let advanced_base = git::rev_parse("feat/base").expect("advanced base sha");
+
+        assert_ne!(original_base, advanced_base);
+        assert_eq!(
+            adoption_parent_head("feat/child", "feat/base").expect("parent head"),
+            original_base
+        );
     }
 }
