@@ -28,6 +28,21 @@ Examples:
         trunk: Option<String>,
     },
 
+    /// Adopt branches from GitHub PRs into the local stack
+    #[command(after_help = "\
+Examples:
+  ez adopt
+  ez adopt --pr 42
+  ez adopt feat/auth feat/db")]
+    Adopt {
+        /// Adopt the chain for a specific PR number
+        #[arg(long)]
+        pr: Option<u64>,
+
+        /// Specific branch names to adopt
+        branches: Vec<String>,
+    },
+
     /// Create a new stacked branch (worktree by default)
     #[command(after_help = "\
 Examples:
@@ -362,8 +377,8 @@ Examples:
   ez move --onto feat/base")]
     Move {
         /// New parent branch
-        #[arg(long)]
-        onto: String,
+        #[arg(long, num_args = 0..=1, default_missing_value = "")]
+        onto: Option<String>,
     },
 
     /// Merge the bottom PR of the current stack via GitHub
@@ -864,6 +879,17 @@ mod tests {
                 assert!(stack);
             }
             _ => panic!("expected merge command"),
+        }
+    }
+
+    #[test]
+    fn parses_move_onto_without_value_for_custom_error() {
+        let cli = Cli::try_parse_from(["ez", "move", "--onto"])
+            .expect("parse move with missing onto value");
+
+        match cli.command {
+            Commands::Move { onto } => assert_eq!(onto.as_deref(), Some("")),
+            _ => panic!("expected move command"),
         }
     }
 }

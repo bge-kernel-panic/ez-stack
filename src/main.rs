@@ -112,6 +112,7 @@ fn handle_clap_error(e: clap::Error, start: Instant) {
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Commands::Init { trunk } => cmd::init::run(trunk),
+        Commands::Adopt { pr, branches } => cmd::adopt::run(pr, &branches),
         Commands::Create {
             name,
             message,
@@ -202,7 +203,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Diff { stat, name_only } => cmd::diff::run(stat, name_only),
         Commands::Parent => cmd::parent::run(),
         Commands::Delete { branch, force, yes } => cmd::delete::run(branch.as_deref(), force, yes),
-        Commands::Move { onto } => cmd::move_branch::run(&onto),
+        Commands::Move { onto } => cmd::move_branch::run(onto.as_deref()),
         Commands::Merge { method, yes, stack } => cmd::merge::run(&method, yes, stack),
         Commands::PrEdit {
             title,
