@@ -45,6 +45,7 @@ pub fn run(
     draft: bool,
     no_draft: bool,
     no_pr: bool,
+    force_pr: bool,
     title: Option<&str>,
     body: Option<&str>,
     body_file: Option<&str>,
@@ -115,8 +116,8 @@ pub fn run(
 
     let remote = &state.remote.clone();
 
-    // Resolve --no-pr: flag > config > false
-    let skip_pr = no_pr || state.no_pr.unwrap_or(false);
+    // Resolve PR creation: --pr > --no-pr > config > false
+    let skip_pr = resolve_no_pr(force_pr, no_pr, state.no_pr);
 
     // Resolve draft: --draft/--no-draft flags > config > false
     let effective_draft = if no_draft {
@@ -197,6 +198,14 @@ pub fn run(
     }));
 
     Ok(())
+}
+
+fn resolve_no_pr(force_pr: bool, no_pr: bool, config_no_pr: Option<bool>) -> bool {
+    if force_pr {
+        false
+    } else {
+        no_pr || config_no_pr.unwrap_or(false)
+    }
 }
 
 /// Push-or-update logic shared with the `submit` command.
@@ -340,7 +349,10 @@ mod tests {
         state.add_branch("feat/a", "main", "aaa", None, None);
 
         let ancestors = stack_ancestors(&state, "feat/a", "org/repo");
-        assert!(ancestors.is_empty(), "branch directly on trunk has no stack ancestors");
+        assert!(
+            ancestors.is_empty(),
+            "branch directly on trunk has no stack ancestors"
+        );
     }
 
     #[test]
@@ -413,25 +425,33 @@ mod tests {
 
     #[test]
     fn no_pr_resolution_flag_overrides_config() {
-        let no_pr = true;
-        let config_no_pr = Some(false);
-        let skip = no_pr || config_no_pr.unwrap_or(false);
-        assert!(skip, "--no-pr flag should override config");
+        assert!(
+            resolve_no_pr(false, true, Some(false)),
+            "--no-pr flag should override config"
+        );
     }
 
     #[test]
     fn no_pr_resolution_config_used_when_no_flag() {
-        let no_pr = false;
-        let config_no_pr = Some(true);
-        let skip = no_pr || config_no_pr.unwrap_or(false);
-        assert!(skip, "config should be used when no flag");
+        assert!(
+            resolve_no_pr(false, false, Some(true)),
+            "config should be used when no flag"
+        );
     }
 
     #[test]
     fn no_pr_resolution_defaults_to_false() {
-        let no_pr = false;
-        let config_no_pr: Option<bool> = None;
-        let skip = no_pr || config_no_pr.unwrap_or(false);
-        assert!(!skip, "default should be false");
+        assert!(
+            !resolve_no_pr(false, false, None),
+            "default should be false"
+        );
+    }
+
+    #[test]
+    fn no_pr_resolution_pr_flag_overrides_config() {
+        assert!(
+            !resolve_no_pr(true, false, Some(true)),
+            "--pr should create/update a PR even when config no_pr is true"
+        );
     }
 }

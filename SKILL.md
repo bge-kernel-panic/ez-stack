@@ -105,6 +105,8 @@ ez status            # stack info + working tree state
 ez push -am "feat: done"               # stage tracked changes + commit + push + create PR
 ez push -Am "feat: done"               # include untracked files too
 ez push --title "feat: auth" --body "..." # with PR metadata
+ez push --no-pr                        # push branch only
+ez push --pr                           # create/update PR even if no_pr config is true
 ez submit                                # push entire stack
 ez merge --yes                           # merge bottom PR non-interactively
 ez merge --stack --yes                   # merge the current linear stack bottom-to-top
@@ -156,4 +158,4 @@ Check `redundant_commits > 0` after sync/restack — means commits were auto-dro
 
 ## Advanced Commands
 
-See [reference.md](reference.md) for the full command reference: `ez commit`, `ez amend`, `ez diff`, `ez status`, `ez restack`, `ez log`, `ez move`, `ez merge`, `ez switch`, `ez pr-edit`, `ez draft`/`ez ready`, `ez pr-link`, `ez update`, `ez setup`, `ez skill install`.
+See [reference.md](reference.md) for the full command reference: `ez commit`, `ez amend`, `ez diff`, `ez status`, `ez restack`, `ez log`, `ez move`, `ez merge`, `ez switch`, `ez pr-edit`, `ez draft`/`ez ready`, `ez pr-link`, `ez config`, `ez update`, `ez setup`, `ez skill install`.

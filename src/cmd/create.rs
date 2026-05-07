@@ -51,7 +51,9 @@ pub fn run(
         // On trunk with no --from: use default_from config if set.
         if let Some(ref default_from) = state.default_from {
             if state.is_trunk(default_from) || state.is_managed(default_from) {
-                ui::info(&format!("Using default parent `{default_from}` (from config)"));
+                ui::info(&format!(
+                    "Using default parent `{default_from}` (from config)"
+                ));
                 default_from.clone()
             } else {
                 ui::warn(&format!(

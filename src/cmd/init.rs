@@ -23,11 +23,13 @@ pub fn run(trunk: Option<String>) -> Result<()> {
 
     // Suggest enabling rerere for conflict recording.
     let rerere_enabled = is_rerere_enabled();
-    if !rerere_enabled {
-        if ui::confirm("Enable git rerere for automatic conflict resolution recording? (Recommended for stacked PRs)") {
-            enable_rerere();
-            state.rerere = Some(true);
-        }
+    if !rerere_enabled
+        && ui::confirm(
+            "Enable git rerere for automatic conflict resolution recording? (Recommended for stacked PRs)",
+        )
+    {
+        enable_rerere();
+        state.rerere = Some(true);
     }
 
     state.save()?;
@@ -41,10 +43,7 @@ fn is_rerere_enabled() -> bool {
     std::process::Command::new("git")
         .args(["config", "rerere.enabled"])
         .output()
-        .map(|o| {
-            o.status.success()
-                && String::from_utf8_lossy(&o.stdout).trim() == "true"
-        })
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
         .unwrap_or(false)
 }
 
@@ -69,9 +68,7 @@ fn enable_rerere() {
             if let Err(e) = std::fs::create_dir_all(&rr_cache) {
                 ui::warn(&format!("Could not create rr-cache directory: {e}"));
             } else {
-                ui::warn(
-                    "Could not set git config — created rr-cache directory directly",
-                );
+                ui::warn("Could not set git config — created rr-cache directory directly");
             }
         }
     }

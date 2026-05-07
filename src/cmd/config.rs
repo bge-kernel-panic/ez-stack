@@ -15,7 +15,10 @@ const KNOWN_KEYS: &[(&str, &str)] = &[
     ("repo", "GitHub repo for PR operations (owner/name)"),
     ("draft", "Default new PRs to draft (true/false)"),
     ("no_pr", "Default push to skip PR creation (true/false)"),
-    ("rerere", "Enable git rerere for conflict recording (true/false)"),
+    (
+        "rerere",
+        "Enable git rerere for conflict recording (true/false)",
+    ),
 ];
 
 /// Keys that accept only boolean values.
@@ -167,6 +170,8 @@ fn set_value(state: &mut StackState, key: &str, value: &str) -> Result<()> {
             state.rerere = Some(enabled);
             if enabled {
                 enable_rerere();
+            } else {
+                disable_rerere();
             }
         }
         _ => {
@@ -197,10 +202,23 @@ fn enable_rerere() {
             if let Err(e) = std::fs::create_dir_all(&rr_cache) {
                 crate::ui::warn(&format!("Could not create rr-cache directory: {e}"));
             } else {
-                crate::ui::warn(
-                    "Could not set git config — created rr-cache directory directly",
-                );
+                crate::ui::warn("Could not set git config — created rr-cache directory directly");
             }
+        }
+    }
+}
+
+/// Disable git rerere when the repo config is set back to false.
+fn disable_rerere() {
+    for key in ["rerere.enabled", "rerere.autoupdate"] {
+        let ok = std::process::Command::new("git")
+            .args(["config", key, "false"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+
+        if !ok {
+            crate::ui::warn(&format!("Could not set git config `{key}` to false"));
         }
     }
 }
@@ -415,6 +433,34 @@ mod tests {
         set("no_pr", "yes").expect("set no_pr yes");
         let state = StackState::load().unwrap();
         assert_eq!(state.no_pr, Some(true));
+    }
+
+    #[test]
+    fn set_rerere_false_disables_git_config() {
+        let _guard = take_env_lock();
+        let (_repo, _cwd) = setup_state();
+
+        set("rerere", "true").expect("set rerere true");
+        assert_eq!(git_config("rerere.enabled"), "true");
+        assert_eq!(git_config("rerere.autoupdate"), "true");
+
+        set("rerere", "false").expect("set rerere false");
+        let state = StackState::load().unwrap();
+        assert_eq!(state.rerere, Some(false));
+        assert_eq!(git_config("rerere.enabled"), "false");
+        assert_eq!(git_config("rerere.autoupdate"), "false");
+    }
+
+    fn git_config(key: &str) -> String {
+        let output = std::process::Command::new("git")
+            .args(["config", "--get", key])
+            .output()
+            .expect("run git config");
+        assert!(output.status.success(), "git config {key} should be set");
+        String::from_utf8(output.stdout)
+            .expect("utf8")
+            .trim()
+            .to_string()
     }
 
     #[test]

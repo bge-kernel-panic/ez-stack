@@ -136,6 +136,8 @@ Examples:
   ez push
   ez push --title \"feat: add auth\" --body \"Adds login/logout.\"
   ez push --draft
+  ez push --pr
+  ez push --no-pr
   ez push --stack
   ez push -am \"feat: add auth\"
   ez push -Am \"feat: add auth and new snapshots\"")]
@@ -151,6 +153,10 @@ Examples:
         /// Push the branch without creating or updating a PR
         #[arg(long, conflicts_with_all = ["draft", "no_draft", "title", "body", "body_file"])]
         no_pr: bool,
+
+        /// Create/update a PR even when config no_pr is true
+        #[arg(long, conflicts_with = "no_pr")]
+        pr: bool,
 
         /// PR title (defaults to first commit message)
         #[arg(long)]
@@ -544,7 +550,10 @@ Examples:
   ez config set trunk develop
   ez config set remote fork
   ez config set default_from dev
-  ez config set repo owner/name")]
+  ez config set repo owner/name
+  ez config set draft true
+  ez config set no_pr true
+  ez config set rerere true")]
     Set {
         /// Config key to update
         key: String,
@@ -758,9 +767,25 @@ mod tests {
         let cli = Cli::try_parse_from(["ez", "push", "--no-pr"]).expect("parse push --no-pr");
 
         match cli.command {
-            Commands::Push { no_pr, draft, .. } => {
+            Commands::Push {
+                no_pr, pr, draft, ..
+            } => {
                 assert!(no_pr);
+                assert!(!pr);
                 assert!(!draft);
+            }
+            _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn parses_push_pr_flag() {
+        let cli = Cli::try_parse_from(["ez", "push", "--pr"]).expect("parse push --pr");
+
+        match cli.command {
+            Commands::Push { pr, no_pr, .. } => {
+                assert!(pr);
+                assert!(!no_pr);
             }
             _ => panic!("expected push command"),
         }
@@ -773,9 +798,14 @@ mod tests {
     }
 
     #[test]
+    fn push_pr_conflicts_with_no_pr() {
+        let result = Cli::try_parse_from(["ez", "push", "--pr", "--no-pr"]);
+        assert!(result.is_err(), "--pr and --no-pr should conflict");
+    }
+
+    #[test]
     fn parses_push_no_draft_flag() {
-        let cli =
-            Cli::try_parse_from(["ez", "push", "--no-draft"]).expect("parse push --no-draft");
+        let cli = Cli::try_parse_from(["ez", "push", "--no-draft"]).expect("parse push --no-draft");
 
         match cli.command {
             Commands::Push {
