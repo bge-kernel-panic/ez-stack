@@ -512,6 +512,13 @@ pub fn fetch_branch(remote: &str, branch: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn fetch_pr_head(remote: &str, pr_number: u64) -> Result<String> {
+    let remote_ref = format!("{remote}/pr/{pr_number}");
+    let refspec = format!("refs/pull/{pr_number}/head:refs/remotes/{remote}/pr/{pr_number}");
+    run_git(&["fetch", remote, &refspec])?;
+    Ok(remote_ref)
+}
+
 fn parse_porcelain_dirty(output: &str) -> bool {
     output.lines().any(|l| !l.trim().is_empty())
 }
