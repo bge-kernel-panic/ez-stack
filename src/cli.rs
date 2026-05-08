@@ -386,7 +386,7 @@ Examples:
         onto: Option<String>,
     },
 
-    /// Merge the bottom PR of the current stack via GitHub
+    /// Merge the bottom PR via GitHub (after each merge, restacked dependents are pushed with `--force-with-lease` so `--stack` can merge the next PR cleanly)
     #[command(after_help = "\
 Examples:
   ez merge
