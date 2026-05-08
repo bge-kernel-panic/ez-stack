@@ -20,12 +20,17 @@ pub enum Commands {
     #[command(after_help = "\
 Examples:
   ez init
+  ez init --yes
   ez init --trunk main
   ez init --trunk develop")]
     Init {
         /// Trunk branch name (auto-detected if not provided)
         #[arg(long)]
         trunk: Option<String>,
+
+        /// Accept recommended defaults without prompting (for agents and scripts)
+        #[arg(short, long)]
+        yes: bool,
     },
 
     /// Adopt branches from GitHub PRs into the local stack
@@ -151,13 +156,27 @@ Examples:
   ez push
   ez push --title \"feat: add auth\" --body \"Adds login/logout.\"
   ez push --draft
+  ez push --pr
+  ez push --no-pr
   ez push --stack
   ez push -am \"feat: add auth\"
   ez push -Am \"feat: add auth and new snapshots\"")]
     Push {
         /// Create a draft PR
-        #[arg(long)]
+        #[arg(long, conflicts_with = "no_pr")]
         draft: bool,
+
+        /// Override draft config to create a ready-for-review PR
+        #[arg(long, conflicts_with = "no_pr")]
+        no_draft: bool,
+
+        /// Push the branch without creating or updating a PR
+        #[arg(long, conflicts_with_all = ["draft", "no_draft", "title", "body", "body_file"])]
+        no_pr: bool,
+
+        /// Create/update a PR even when config no_pr is true
+        #[arg(long, conflicts_with = "no_pr")]
+        pr: bool,
 
         /// PR title (defaults to first commit message)
         #[arg(long)]
@@ -201,11 +220,18 @@ Examples:
     #[command(after_help = "\
 Examples:
   ez submit
-  ez submit --draft")]
+  ez submit --draft
+
+Note: --draft only affects newly created PRs. Existing PRs are not changed.
+Use `ez ready` to undraft an existing PR.")]
     Submit {
-        /// Create draft PRs
+        /// Create draft PRs (only affects new PRs, not existing ones)
         #[arg(long)]
         draft: bool,
+
+        /// Override draft config to create ready-for-review PRs
+        #[arg(long)]
+        no_draft: bool,
 
         /// PR title (defaults to first commit message)
         #[arg(long)]
@@ -456,6 +482,9 @@ Examples:
   eval \"$(ez shell-init)\"")]
     ShellInit,
 
+    /// View and update ez settings for the current repo
+    Config(ConfigArgs),
+
     /// Manage git worktrees
     Worktree(WorktreeArgs),
 }
@@ -509,6 +538,49 @@ Examples:
 Examples:
   ez scope clear")]
     Clear,
+}
+
+#[derive(Args)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub command: ConfigCommands,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommands {
+    /// List all config settings
+    #[command(after_help = "\
+Examples:
+  ez config list")]
+    List,
+
+    /// Get the value of a config key
+    #[command(after_help = "\
+Examples:
+  ez config get trunk
+  ez config get remote")]
+    Get {
+        /// Config key to read
+        key: String,
+    },
+
+    /// Set a config key to a new value
+    #[command(after_help = "\
+Examples:
+  ez config set trunk develop
+  ez config set remote fork
+  ez config set default_from dev
+  ez config set repo owner/name
+  ez config set draft true
+  ez config set no_pr true
+  ez config set rerere true")]
+    Set {
+        /// Config key to update
+        key: String,
+
+        /// New value
+        value: String,
+    },
 }
 
 #[derive(Args)]
@@ -581,6 +653,19 @@ Examples:
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn parses_init_yes_flag() {
+        let cli = Cli::try_parse_from(["ez", "init", "--yes"]).expect("parse init --yes");
+
+        match cli.command {
+            Commands::Init { yes, trunk } => {
+                assert!(yes);
+                assert!(trunk.is_none());
+            }
+            _ => panic!("expected init command"),
+        }
+    }
 
     #[test]
     fn parses_commit_with_paths_after_double_dash() {
@@ -696,13 +781,89 @@ mod tests {
                 message,
                 stage_all,
                 stage_all_files,
+                no_pr,
+                no_draft,
                 ..
             } => {
                 assert_eq!(message.as_deref(), Some("feat: ship new files"));
                 assert!(!stage_all);
                 assert!(stage_all_files);
+                assert!(!no_pr);
+                assert!(!no_draft);
             }
             _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn parses_push_no_pr_flag() {
+        let cli = Cli::try_parse_from(["ez", "push", "--no-pr"]).expect("parse push --no-pr");
+
+        match cli.command {
+            Commands::Push {
+                no_pr, pr, draft, ..
+            } => {
+                assert!(no_pr);
+                assert!(!pr);
+                assert!(!draft);
+            }
+            _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn parses_push_pr_flag() {
+        let cli = Cli::try_parse_from(["ez", "push", "--pr"]).expect("parse push --pr");
+
+        match cli.command {
+            Commands::Push { pr, no_pr, .. } => {
+                assert!(pr);
+                assert!(!no_pr);
+            }
+            _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn push_no_pr_conflicts_with_draft() {
+        let result = Cli::try_parse_from(["ez", "push", "--no-pr", "--draft"]);
+        assert!(result.is_err(), "--no-pr and --draft should conflict");
+    }
+
+    #[test]
+    fn push_pr_conflicts_with_no_pr() {
+        let result = Cli::try_parse_from(["ez", "push", "--pr", "--no-pr"]);
+        assert!(result.is_err(), "--pr and --no-pr should conflict");
+    }
+
+    #[test]
+    fn parses_push_no_draft_flag() {
+        let cli = Cli::try_parse_from(["ez", "push", "--no-draft"]).expect("parse push --no-draft");
+
+        match cli.command {
+            Commands::Push {
+                no_draft, draft, ..
+            } => {
+                assert!(no_draft);
+                assert!(!draft);
+            }
+            _ => panic!("expected push command"),
+        }
+    }
+
+    #[test]
+    fn parses_submit_no_draft_flag() {
+        let cli =
+            Cli::try_parse_from(["ez", "submit", "--no-draft"]).expect("parse submit --no-draft");
+
+        match cli.command {
+            Commands::Submit {
+                no_draft, draft, ..
+            } => {
+                assert!(no_draft);
+                assert!(!draft);
+            }
+            _ => panic!("expected submit command"),
         }
     }
 

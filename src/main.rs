@@ -16,7 +16,7 @@ mod ui;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands, ScopeCommands, SkillCommands, WorktreeCommands};
+use cli::{Cli, Commands, ConfigCommands, ScopeCommands, SkillCommands, WorktreeCommands};
 use std::time::Instant;
 
 fn exit_code_for(e: &anyhow::Error) -> i32 {
@@ -111,7 +111,7 @@ fn handle_clap_error(e: clap::Error, start: Instant) {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Init { trunk } => cmd::init::run(trunk),
+        Commands::Init { trunk, yes } => cmd::init::run(trunk, yes),
         Commands::Adopt { pr, branches } => cmd::adopt::run(pr, &branches),
         Commands::Create {
             name,
@@ -148,6 +148,9 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Amend { message, all } => cmd::amend::run(message.as_deref(), all),
         Commands::Push {
             draft,
+            no_draft,
+            no_pr,
+            pr,
             title,
             body,
             body_file,
@@ -158,6 +161,9 @@ fn run(cli: Cli) -> Result<()> {
             message,
         } => cmd::push::run(
             draft,
+            no_draft,
+            no_pr,
+            pr,
             title.as_deref(),
             body.as_deref(),
             body_file.as_deref(),
@@ -169,11 +175,13 @@ fn run(cli: Cli) -> Result<()> {
         ),
         Commands::Submit {
             draft,
+            no_draft,
             title,
             body,
             body_file,
         } => cmd::submit::run(
             draft,
+            no_draft,
             title.as_deref(),
             body.as_deref(),
             body_file.as_deref(),
@@ -219,6 +227,11 @@ fn run(cli: Cli) -> Result<()> {
             SkillCommands::Uninstall => cmd::skill::uninstall(),
         },
         Commands::ShellInit => cmd::shell_init::run(),
+        Commands::Config(args) => match args.command {
+            ConfigCommands::List => cmd::config::list(),
+            ConfigCommands::Get { key } => cmd::config::get(&key),
+            ConfigCommands::Set { key, value } => cmd::config::set(&key, &value),
+        },
         Commands::Worktree(args) => match args.command {
             WorktreeCommands::Create { name, from } => {
                 cmd::worktree::create(&name, from.as_deref())
