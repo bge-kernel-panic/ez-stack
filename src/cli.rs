@@ -270,11 +270,30 @@ Examples:
     /// Fetch trunk, refresh it locally, and rebase stale branches onto their latest parent tips
     Restack,
 
-    /// Move up one branch in the stack
-    Up,
+    /// Move up one branch in the stack (toward child branches)
+    #[command(after_help = "\
+Examples:
+  ez up
+  ez up feat/auth
+  ez up 42
+
+When multiple branches stack on the current branch, use the menu in a terminal or pass the child name or PR number in scripts.")]
+    Up {
+        /// Child branch name or PR number (required when multiple children exist without a TTY)
+        branch: Option<String>,
+    },
 
     /// Move down one branch in the stack (toward trunk)
-    Down,
+    #[command(after_help = "\
+Examples:
+  ez down
+  ez down main
+
+Optional branch must match the stack parent — useful for scripts to assert the destination.")]
+    Down {
+        /// Parent branch name (must match `ez parent`); omit to move to the stack parent
+        branch: Option<String>,
+    },
 
     /// Move to the top of the stack
     Top,
@@ -897,6 +916,27 @@ mod tests {
                 assert!(stack);
             }
             _ => panic!("expected merge command"),
+        }
+    }
+
+    #[test]
+    fn parses_up_down_optional_branch() {
+        let up = Cli::try_parse_from(["ez", "up", "feat/child"]).expect("parse up");
+        match up.command {
+            Commands::Up { branch } => assert_eq!(branch.as_deref(), Some("feat/child")),
+            _ => panic!("expected up"),
+        }
+
+        let up_bare = Cli::try_parse_from(["ez", "up"]).expect("parse up bare");
+        match up_bare.command {
+            Commands::Up { branch } => assert!(branch.is_none()),
+            _ => panic!("expected up"),
+        }
+
+        let down = Cli::try_parse_from(["ez", "down", "main"]).expect("parse down");
+        match down.command {
+            Commands::Down { branch } => assert_eq!(branch.as_deref(), Some("main")),
+            _ => panic!("expected down"),
         }
     }
 
