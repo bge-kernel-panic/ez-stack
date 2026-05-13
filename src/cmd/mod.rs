@@ -29,5 +29,6 @@ pub mod skill;
 pub mod status;
 pub mod submit;
 pub mod sync;
+pub mod track;
 pub mod update;
 pub mod worktree;

@@ -442,6 +442,13 @@ pub fn merge_base(a: &str, b: &str) -> Result<String> {
     run_git(&["merge-base", a, b])
 }
 
+/// Count commits reachable from `tip` that are not reachable from `base`
+/// (i.e. `git rev-list --count base..tip`). Returns 0 on parse or git error.
+pub fn rev_list_count(base: &str, tip: &str) -> Result<u64> {
+    let out = run_git(&["rev-list", "--count", &format!("{base}..{tip}")])?;
+    Ok(out.trim().parse().unwrap_or(0))
+}
+
 /// Returns true if `ancestor` is reachable from `descendant` (i.e. is an ancestor of it).
 /// Returns false if not, or if either ref does not exist.
 pub fn is_ancestor(ancestor: &str, descendant: &str) -> bool {
@@ -498,6 +505,14 @@ pub fn remote_branch_exists(remote: &str, branch: &str) -> bool {
     run_git(&["ls-remote", "--heads", remote, branch])
         .map(|out| !out.is_empty())
         .unwrap_or(false)
+}
+
+/// Read the configured URL for a remote (`git remote get-url <remote>`).
+///
+/// Returns the URL as configured in `.git/config`. Used to derive the
+/// GitHub owner/repo without a network round-trip.
+pub fn remote_url(remote: &str) -> Result<String> {
+    run_git(&["remote", "get-url", remote])
 }
 
 pub fn branch_list() -> Result<Vec<String>> {

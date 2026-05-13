@@ -374,6 +374,22 @@ Examples:
   git diff $(ez parent)...HEAD --stat")]
     Parent,
 
+    /// Start tracking an existing local branch in the ez stack (pure metadata, no rebase)
+    #[command(after_help = "\
+Examples:
+  ez track                        # track the current branch (infer parent)
+  ez track feat/orphan            # track a specific branch (infer parent)
+  ez track --parent feat/base     # set an explicit parent
+  ez track feat/orphan --parent feat/base")]
+    Track {
+        /// Branch to track (defaults to current branch)
+        branch: Option<String>,
+
+        /// Parent branch (defaults to closest tracked ancestor by merge-base, else trunk)
+        #[arg(long)]
+        parent: Option<String>,
+    },
+
     /// Delete a branch (and its worktree if present), stop listeners on its dev port, and reparent its children
     #[command(after_help = "\
 Examples:
