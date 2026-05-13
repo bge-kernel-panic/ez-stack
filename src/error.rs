@@ -17,7 +17,9 @@ pub enum EzError {
     #[error("currently on trunk branch — create a stacked branch first with `ez create <name>`")]
     OnTrunk,
 
-    #[error("branch `{0}` not found in stack metadata\n  → Run `ez log` to see tracked branches")]
+    #[error(
+        "branch `{0}` is not tracked by ez\n  → Run `ez track` to start tracking it, or `ez log` to see tracked branches"
+    )]
     BranchNotInStack(String),
 
     #[error("branch `{0}` already exists — use `ez checkout {0}` to switch to it")]
@@ -74,7 +76,8 @@ mod tests {
         assert!(
             EzError::BranchNotInStack("feat/x".into())
                 .to_string()
-                .contains("stack metadata")
+                .contains("ez track"),
+            "BranchNotInStack should hint at `ez track`"
         );
         assert!(
             EzError::NothingToCommit

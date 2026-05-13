@@ -442,6 +442,13 @@ pub fn merge_base(a: &str, b: &str) -> Result<String> {
     run_git(&["merge-base", a, b])
 }
 
+/// Count commits reachable from `tip` that are not reachable from `base`
+/// (i.e. `git rev-list --count base..tip`). Returns 0 on parse or git error.
+pub fn rev_list_count(base: &str, tip: &str) -> Result<u64> {
+    let out = run_git(&["rev-list", "--count", &format!("{base}..{tip}")])?;
+    Ok(out.trim().parse().unwrap_or(0))
+}
+
 /// Returns true if `ancestor` is reachable from `descendant` (i.e. is an ancestor of it).
 /// Returns false if not, or if either ref does not exist.
 pub fn is_ancestor(ancestor: &str, descendant: &str) -> bool {
