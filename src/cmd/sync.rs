@@ -196,7 +196,8 @@ fn run_sync_inner(force: bool) -> Result<()> {
     let has_any_prs = !cleanup_candidates.is_empty();
     let pr_statuses = if has_any_prs {
         let sp = ui::spinner("Checking PR states...");
-        let statuses = github::get_all_pr_statuses();
+        let branch_refs: Vec<&str> = cleanup_candidates.iter().map(String::as_str).collect();
+        let statuses = github::get_pr_statuses_for(&state.remote, &branch_refs);
         sp.finish_and_clear();
         statuses
     } else {

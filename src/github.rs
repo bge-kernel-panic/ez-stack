@@ -152,6 +152,175 @@ fn pr_info_from_rest_value(value: &serde_json::Value) -> Option<(String, PrInfo)
     ))
 }
 
+/// Fetch the most recent PR for each given branch in a single GraphQL request.
+///
+/// Avoids the catastrophic pagination of `get_all_pr_statuses` on repos with
+/// thousands of historical PRs: that variant scans every PR ever opened (~1s
+/// per 100), while this one issues a single round-trip with aliased fields per
+/// branch (~0.5s total regardless of branch count).
+///
+/// Returns a map keyed by branch name. Branches with no matching PR are absent.
+/// On any failure (network, parse, auth, or owner/repo resolution) the function
+/// returns an empty map — matching the silent-failure semantics of
+/// `get_all_pr_statuses`. Callers fall through to git-level merge detection.
+///
+/// `remote` is used to derive the GitHub owner/repo via the local git remote
+/// URL, with a fallback to `gh repo view` if the URL is unparseable.
+pub fn get_pr_statuses_for(
+    remote: &str,
+    branches: &[&str],
+) -> std::collections::HashMap<String, PrInfo> {
+    if branches.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let Ok((owner, name)) = resolve_owner_repo(remote) else {
+        return std::collections::HashMap::new();
+    };
+
+    let query = build_pr_statuses_query(branches);
+    let owner_arg = format!("owner={owner}");
+    let name_arg = format!("name={name}");
+    let query_arg = format!("query={query}");
+    let Ok(json_str) = run_gh(&[
+        "api", "graphql", "-F", &owner_arg, "-F", &name_arg, "-f", &query_arg,
+    ]) else {
+        return std::collections::HashMap::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&json_str) else {
+        return std::collections::HashMap::new();
+    };
+
+    parse_pr_statuses_response(&value, branches)
+}
+
+/// Resolve `(owner, name)` for the GitHub repo backing `remote`.
+///
+/// Fast path: parse `git remote get-url <remote>` locally (~10ms). Falls back
+/// to `gh repo view` (~400ms, network) if the URL is unparseable — e.g. an
+/// SSH-config alias or a non-standard host. Errors only when both fail.
+fn resolve_owner_repo(remote: &str) -> Result<(String, String)> {
+    if let Ok(url) = crate::git::remote_url(remote) {
+        if let Some(pair) = parse_owner_repo_from_remote_url(&url) {
+            return Ok(pair);
+        }
+    }
+    let repo = repo_name()?;
+    repo.split_once('/')
+        .map(|(o, n)| (o.to_string(), n.to_string()))
+        .ok_or_else(|| anyhow::anyhow!("unexpected repo name format `{repo}`"))
+}
+
+/// Parse `owner` and `repo` from a GitHub remote URL.
+///
+/// Handles the common forms:
+/// - `git@github.com:owner/repo.git`
+/// - `git@github.com:owner/repo`
+/// - `https://github.com/owner/repo.git`
+/// - `https://github.com/owner/repo`
+/// - `ssh://git@github.com/owner/repo.git`
+/// - `git://github.com/owner/repo.git`
+///
+/// Returns `None` if the URL doesn't match a recognizable form (e.g. SSH host
+/// aliases like `github:owner/repo` from `~/.ssh/config`). Callers fall back to
+/// `gh repo view` in that case.
+fn parse_owner_repo_from_remote_url(url: &str) -> Option<(String, String)> {
+    let trimmed = url.trim();
+    let stripped = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+
+    // SCP-style: git@host:owner/repo
+    if let Some(rest) = stripped.strip_prefix("git@") {
+        if let Some((_host, path)) = rest.split_once(':') {
+            return split_owner_repo(path);
+        }
+    }
+
+    // URL-style: <scheme>://[user@]host/owner/repo
+    for prefix in ["https://", "http://", "ssh://", "git://"] {
+        if let Some(rest) = stripped.strip_prefix(prefix) {
+            // Drop optional user@ segment (e.g. ssh://git@github.com/...).
+            let after_user = rest.split_once('@').map(|(_, r)| r).unwrap_or(rest);
+            if let Some((_host, path)) = after_user.split_once('/') {
+                return split_owner_repo(path);
+            }
+        }
+    }
+
+    None
+}
+
+fn split_owner_repo(path: &str) -> Option<(String, String)> {
+    let mut parts = path.splitn(3, '/');
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+    Some((owner.to_string(), repo.to_string()))
+}
+
+/// Construct a GraphQL query asking for the most recent PR for each branch.
+///
+/// Each branch is aliased as `b{i}` so the response order is stable and
+/// independent of the branch name (which may contain characters not allowed in
+/// a GraphQL alias). Branch names are JSON-escaped — GraphQL string literals
+/// use the same escape rules as JSON, so this is safe for any name git allows.
+fn build_pr_statuses_query(branches: &[&str]) -> String {
+    let mut q =
+        String::from("query($owner:String!,$name:String!){repository(owner:$owner,name:$name){");
+    for (i, branch) in branches.iter().enumerate() {
+        let escaped = serde_json::to_string(branch).unwrap_or_else(|_| "\"\"".to_string());
+        q.push_str(&format!(
+            "b{i}:pullRequests(headRefName:{escaped},first:1,orderBy:{{field:CREATED_AT,direction:DESC}}){{nodes{{number url state title baseRefName isDraft mergedAt}}}}"
+        ));
+    }
+    q.push_str("}}");
+    q
+}
+
+fn parse_pr_statuses_response(
+    value: &serde_json::Value,
+    branches: &[&str],
+) -> std::collections::HashMap<String, PrInfo> {
+    let mut map = std::collections::HashMap::new();
+    let repo = &value["data"]["repository"];
+    for (i, branch) in branches.iter().enumerate() {
+        let alias = format!("b{i}");
+        let Some(nodes) = repo[&alias]["nodes"].as_array() else {
+            continue;
+        };
+        let Some(node) = nodes.first() else {
+            continue;
+        };
+        let Some(pr) = pr_info_from_graphql_node(node) else {
+            continue;
+        };
+        map.insert((*branch).to_string(), pr);
+    }
+    map
+}
+
+fn pr_info_from_graphql_node(node: &serde_json::Value) -> Option<PrInfo> {
+    let number = node["number"].as_u64()?;
+    let state = node["state"]
+        .as_str()
+        .unwrap_or("UNKNOWN")
+        .to_ascii_uppercase();
+    // GraphQL distinguishes MERGED from CLOSED in the state enum, but also
+    // exposes `mergedAt`. Prefer the explicit state, fall back to mergedAt.
+    let merged = state == "MERGED" || node["mergedAt"].as_str().is_some_and(|s| !s.is_empty());
+    Some(PrInfo {
+        number,
+        url: node["url"].as_str().unwrap_or("").to_string(),
+        state,
+        title: node["title"].as_str().unwrap_or("").to_string(),
+        base: node["baseRefName"].as_str().unwrap_or("").to_string(),
+        is_draft: node["isDraft"].as_bool().unwrap_or(false),
+        merged,
+    })
+}
+
 pub fn merge_pr(pr_number: u64, method: &str) -> Result<()> {
     let repo = repo_name()?;
     let route = format!("repos/{repo}/pulls/{pr_number}/merge");
@@ -360,6 +529,15 @@ case "$cmd" in
   api)
     if [ "$1" = "-X" ] && [ "$2" = "PUT" ] && [ "$3" = 'repos/org/repo/pulls/77/merge' ] && [ "$4" = "-f" ] && [ "$5" = 'merge_method=squash' ]; then
       echo '{"merged":true,"message":"merged"}'
+    elif [ "$1" = "graphql" ]; then
+      # Capture the request so tests can assert what was sent.
+      if [ -n "$EZ_FAKE_GH_LOG" ]; then
+        printf 'graphql' >> "$EZ_FAKE_GH_LOG"
+        for arg in "$@"; do printf '\t%s' "$arg" >> "$EZ_FAKE_GH_LOG"; done
+        printf '\n' >> "$EZ_FAKE_GH_LOG"
+      fi
+      # Canned response: b0 has a merged PR, b1 has an open PR, b2 has no PRs.
+      printf '%s' '{"data":{"repository":{"b0":{"nodes":[{"number":42,"url":"https://github.com/org/repo/pull/42","state":"MERGED","title":"Done","baseRefName":"main","isDraft":false,"mergedAt":"2026-04-01T00:00:00Z"}]},"b1":{"nodes":[{"number":43,"url":"https://github.com/org/repo/pull/43","state":"OPEN","title":"Wip","baseRefName":"main","isDraft":true,"mergedAt":null}]},"b2":{"nodes":[]}}}}'
     elif [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=1' ]; then
       printf '%s' '[{"number":10,"html_url":"https://github.com/org/repo/pull/10","state":"closed","title":"Newest","draft":false,"merged_at":"2026-01-01T00:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reused"}},{"number":11,"html_url":"https://github.com/org/repo/pull/11","state":"open","title":"Other","draft":true,"merged_at":null,"base":{"ref":"develop"},"head":{"ref":"feat/other"}}]'
     elif [ "$1" = 'repos/{owner}/{repo}/pulls?state=all&per_page=100&page=2' ]; then
@@ -595,5 +773,236 @@ exit 0
         let _path = PathGuard::install(&fake_dir);
 
         assert_eq!(get_ci_status("feature"), "");
+    }
+
+    #[test]
+    fn parse_owner_repo_from_remote_url_handles_common_forms() {
+        let cases = [
+            (
+                "git@github.com:onyx-dot-app/onyx.git",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            ("git@github.com:onyx-dot-app/onyx", "onyx-dot-app", "onyx"),
+            (
+                "https://github.com/onyx-dot-app/onyx.git",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            (
+                "https://github.com/onyx-dot-app/onyx",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            (
+                "ssh://git@github.com/onyx-dot-app/onyx.git",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            (
+                "git://github.com/onyx-dot-app/onyx.git",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            // Subpaths beyond owner/repo are ignored.
+            (
+                "https://github.com/onyx-dot-app/onyx/tree/main",
+                "onyx-dot-app",
+                "onyx",
+            ),
+            // Leading/trailing whitespace from git output.
+            (
+                "  https://github.com/onyx-dot-app/onyx.git\n",
+                "onyx-dot-app",
+                "onyx",
+            ),
+        ];
+        for (url, want_owner, want_repo) in cases {
+            let got = parse_owner_repo_from_remote_url(url)
+                .unwrap_or_else(|| panic!("expected Some for `{url}`"));
+            assert_eq!(
+                got,
+                (want_owner.to_string(), want_repo.to_string()),
+                "url={url}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_owner_repo_from_remote_url_returns_none_for_unrecognized_forms() {
+        // SSH host alias (e.g. ~/.ssh/config) — has no protocol prefix.
+        assert!(parse_owner_repo_from_remote_url("github:onyx-dot-app/onyx").is_none());
+        // Empty / missing path.
+        assert!(parse_owner_repo_from_remote_url("https://github.com/").is_none());
+        assert!(parse_owner_repo_from_remote_url("git@github.com:onyx-dot-app").is_none());
+        // Total junk.
+        assert!(parse_owner_repo_from_remote_url("not a url").is_none());
+    }
+
+    #[test]
+    fn build_pr_statuses_query_aliases_each_branch_in_order() {
+        let q = build_pr_statuses_query(&["feat/a", "feat/b"]);
+        assert!(q.starts_with(
+            "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){"
+        ));
+        assert!(q.contains("b0:pullRequests(headRefName:\"feat/a\""));
+        assert!(q.contains("b1:pullRequests(headRefName:\"feat/b\""));
+        assert!(q.contains("first:1"));
+        assert!(q.contains("orderBy:{field:CREATED_AT,direction:DESC}"));
+        assert!(q.ends_with("}}"));
+        // b0 must appear before b1 — alias order is how we map response → branch.
+        let b0 = q.find("b0:").expect("b0 alias present");
+        let b1 = q.find("b1:").expect("b1 alias present");
+        assert!(b0 < b1);
+    }
+
+    #[test]
+    fn build_pr_statuses_query_escapes_special_characters_in_branch_names() {
+        // GraphQL string literals share JSON escape rules: quote → \" and
+        // backslash → \\. Branch names with these characters must survive intact.
+        let q = build_pr_statuses_query(&["feat/has\"quote", "back\\slash"]);
+        assert!(q.contains(r#""feat/has\"quote""#), "query: {q}");
+        assert!(q.contains(r#""back\\slash""#), "query: {q}");
+    }
+
+    #[test]
+    fn parse_pr_statuses_response_maps_aliased_nodes_back_to_branches() {
+        let value = serde_json::json!({
+            "data": {
+                "repository": {
+                    "b0": {"nodes": [{
+                        "number": 12,
+                        "url": "https://example.com/pr/12",
+                        "state": "OPEN",
+                        "title": "Hi",
+                        "baseRefName": "main",
+                        "isDraft": false,
+                        "mergedAt": null,
+                    }]},
+                    "b1": {"nodes": []},
+                }
+            }
+        });
+        let map = parse_pr_statuses_response(&value, &["feat/a", "feat/missing"]);
+        let pr = map.get("feat/a").expect("present");
+        assert_eq!(pr.number, 12);
+        assert_eq!(pr.state, "OPEN");
+        assert!(!pr.merged);
+        // A branch with no PR must be absent from the map (not present with default values).
+        assert!(!map.contains_key("feat/missing"));
+    }
+
+    #[test]
+    fn parse_pr_statuses_response_handles_empty_data() {
+        // Network/auth failure shape: data is null/absent.
+        let value = serde_json::json!({});
+        let map = parse_pr_statuses_response(&value, &["feat/a"]);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn pr_info_from_graphql_node_marks_merged_state_correctly() {
+        let value = serde_json::json!({
+            "number": 5,
+            "url": "https://example.com/pr/5",
+            "state": "MERGED",
+            "title": "Merged",
+            "baseRefName": "main",
+            "isDraft": false,
+            "mergedAt": "2026-04-01T00:00:00Z",
+        });
+        let pr = pr_info_from_graphql_node(&value).expect("valid node");
+        assert_eq!(pr.state, "MERGED");
+        assert!(pr.merged);
+    }
+
+    #[test]
+    fn pr_info_from_graphql_node_distinguishes_closed_from_merged() {
+        let value = serde_json::json!({
+            "number": 6,
+            "url": "https://example.com/pr/6",
+            "state": "CLOSED",
+            "title": "Closed",
+            "baseRefName": "main",
+            "isDraft": false,
+            "mergedAt": null,
+        });
+        let pr = pr_info_from_graphql_node(&value).expect("valid node");
+        assert_eq!(pr.state, "CLOSED");
+        assert!(!pr.merged);
+    }
+
+    #[test]
+    fn pr_info_from_graphql_node_returns_none_when_number_missing() {
+        // A malformed node (no number) must be skipped rather than yielding a
+        // PrInfo with number=0 that callers might treat as real.
+        let value = serde_json::json!({
+            "url": "https://example.com/pr/0",
+            "state": "OPEN",
+            "title": "Broken",
+        });
+        assert!(pr_info_from_graphql_node(&value).is_none());
+    }
+
+    #[test]
+    fn get_pr_statuses_for_returns_empty_without_invoking_gh_when_no_branches() {
+        // Critical: an empty branch list must short-circuit without any
+        // subprocess call. Run with PATH pointed at a directory that does not
+        // contain `gh` to prove no exec happens.
+        let _guard = take_env_lock();
+        let empty_dir = temp_dir("ez-empty-path");
+        let _path = PathGuard::install(&empty_dir);
+
+        let map = get_pr_statuses_for("origin", &[]);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn get_pr_statuses_for_returns_canned_graphql_response() {
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_gh("graphql-canned");
+        let _path = PathGuard::install(&fake_dir);
+
+        // We pass three branches matching the fake gh's canned aliases:
+        // b0 → merged, b1 → open, b2 → no PR.
+        let map = get_pr_statuses_for("origin", &["feat/merged", "feat/open", "feat/no-pr"]);
+
+        let merged = map.get("feat/merged").expect("merged branch present");
+        assert_eq!(merged.number, 42);
+        assert_eq!(merged.state, "MERGED");
+        assert!(merged.merged);
+        assert_eq!(merged.base, "main");
+
+        let open = map.get("feat/open").expect("open branch present");
+        assert_eq!(open.number, 43);
+        assert_eq!(open.state, "OPEN");
+        assert!(!open.merged);
+        assert!(open.is_draft);
+
+        assert!(!map.contains_key("feat/no-pr"));
+    }
+
+    #[test]
+    fn get_pr_statuses_for_sends_one_request_for_many_branches() {
+        // Latency win is contingent on a single round-trip regardless of branch
+        // count. Lock that contract by counting subprocess invocations.
+        let _guard = take_env_lock();
+        let fake_dir = install_fake_gh("graphql-once");
+        let _path = PathGuard::install(&fake_dir);
+
+        let log_path = fake_dir.join("calls.log");
+        unsafe {
+            std::env::set_var("EZ_FAKE_GH_LOG", &log_path);
+        }
+        let branches: Vec<String> = (0..25).map(|i| format!("feat/b{i}")).collect();
+        let refs: Vec<&str> = branches.iter().map(String::as_str).collect();
+        let _ = get_pr_statuses_for("origin", &refs);
+        unsafe {
+            std::env::remove_var("EZ_FAKE_GH_LOG");
+        }
+
+        let log = std::fs::read_to_string(&log_path).unwrap_or_default();
+        let graphql_calls = log.lines().filter(|l| l.starts_with("graphql")).count();
+        assert_eq!(graphql_calls, 1, "expected 1 graphql call, got log:\n{log}");
     }
 }

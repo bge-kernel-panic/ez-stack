@@ -121,11 +121,15 @@ pub fn run(json: bool) -> Result<()> {
         })
         .collect();
 
-    // One API call for all CI statuses (instead of N sequential gh calls).
+    // One API call for all PR statuses (instead of scanning every PR in the repo).
     let has_any_branches = !branch_specs.is_empty();
+    let branch_names_for_prs: Vec<String> =
+        branch_specs.iter().map(|(name, ..)| name.clone()).collect();
+    let remote_for_prs = state.remote.clone();
     let pr_handle = thread::spawn(move || {
         if has_any_branches {
-            github::get_all_pr_statuses()
+            let refs: Vec<&str> = branch_names_for_prs.iter().map(String::as_str).collect();
+            github::get_pr_statuses_for(&remote_for_prs, &refs)
         } else {
             HashMap::new()
         }

@@ -155,6 +155,7 @@ These features exist specifically to make ez useable by AI agents:
 | 0.2.18 | Add `-A`/`--all-files` for commit and push, preserve stale-base metadata until real restacks happen across sync/delete/merge, refresh trunk during `ez restack`, and warn after switching to a branch that is not restacked on latest main |
 | 0.2.19 | Canonicalize `ez skill install` under `.agents/skills` with safe link-or-copy compatibility targets, improve worktree-awareness messaging and status output, and teach agents when to use `-A`/`-Am` for untracked files |
 | 0.2.20 | Add non-interactive `ez merge --yes`, support `ez merge --stack` for linear stacks, and restore remote branch cleanup after REST-based merges |
+| 0.2.24 | `ez sync`/`ez list` PR-status lookup uses one GraphQL request with aliased fields per branch instead of paginating every PR in the repo (122s → 1.8s on a 10k-PR repo); add local git-remote URL parser to skip the `gh repo view` round-trip when deriving owner/repo; `ez adopt` still uses the global PR scan because it needs the full PR graph |
 
 ---
 

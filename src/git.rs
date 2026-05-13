@@ -500,6 +500,14 @@ pub fn remote_branch_exists(remote: &str, branch: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Read the configured URL for a remote (`git remote get-url <remote>`).
+///
+/// Returns the URL as configured in `.git/config`. Used to derive the
+/// GitHub owner/repo without a network round-trip.
+pub fn remote_url(remote: &str) -> Result<String> {
+    run_git(&["remote", "get-url", remote])
+}
+
 pub fn branch_list() -> Result<Vec<String>> {
     let output = run_git(&["branch", "--format=%(refname:short)"])?;
     Ok(output.lines().map(|s| s.to_string()).collect())
