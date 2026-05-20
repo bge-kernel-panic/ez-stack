@@ -194,6 +194,36 @@ pub fn get_pr_statuses_for(
     parse_pr_statuses_response(&value, branches)
 }
 
+/// Look up one PR by number. Returns `None` on any failure — callers surface
+/// the missing-PR case as a user-facing error.
+pub fn get_pr_by_number(remote: &str, number: u64) -> Option<(String, PrInfo)> {
+    let (owner, name) = resolve_owner_repo(remote).ok()?;
+
+    let query = "query($owner:String!,$name:String!,$num:Int!){repository(owner:$owner,name:$name){pullRequest(number:$num){number url state title baseRefName headRefName isDraft mergedAt}}}";
+    let owner_arg = format!("owner={owner}");
+    let name_arg = format!("name={name}");
+    // -F (capital) sends a typed value; required so $num arrives as Int.
+    let num_arg = format!("num={number}");
+    let query_arg = format!("query={query}");
+    let json_str = run_gh(&[
+        "api", "graphql", "-F", &owner_arg, "-F", &name_arg, "-F", &num_arg, "-f", &query_arg,
+    ])
+    .ok()?;
+    let value: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+
+    parse_pr_by_number_response(&value)
+}
+
+fn parse_pr_by_number_response(value: &serde_json::Value) -> Option<(String, PrInfo)> {
+    let node = &value["data"]["repository"]["pullRequest"];
+    if node.is_null() {
+        return None;
+    }
+    let head = node["headRefName"].as_str()?.to_string();
+    let pr = pr_info_from_graphql_node(node)?;
+    Some((head, pr))
+}
+
 /// Resolve `(owner, name)` for the GitHub repo backing `remote`.
 ///
 /// Fast path: parse `git remote get-url <remote>` locally (~10ms). Falls back

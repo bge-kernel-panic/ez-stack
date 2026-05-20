@@ -101,54 +101,99 @@ fn build_adopt_graph(trunk: &str, prs: &HashMap<String, github::PrInfo>) -> Vec<
     sorted
 }
 
-fn chain_to_trunk(
-    prs: &HashMap<String, github::PrInfo>,
-    trunk: &str,
-    branch: &str,
-) -> Option<Vec<String>> {
-    let mut chain = Vec::new();
-    let mut current = branch.to_string();
-    let mut seen = HashSet::new();
-
-    loop {
-        if current == trunk {
-            return Some(chain);
-        }
-        if !seen.insert(current.clone()) {
-            return None;
-        }
-
-        let pr = prs.get(&current)?;
-        chain.push(current.clone());
-        current = pr.base.clone();
-    }
-}
-
-fn filter_prs_for_requested_branches(
-    prs: &HashMap<String, github::PrInfo>,
-    trunk: &str,
-    branches: &[String],
-) -> HashMap<String, github::PrInfo> {
-    let mut branch_set = HashSet::new();
-    for branch in branches {
-        if let Some(chain) = chain_to_trunk(prs, trunk, branch) {
-            branch_set.extend(chain);
-        }
-    }
-
-    prs.iter()
-        .filter(|(branch, _)| branch_set.contains(*branch))
-        .map(|(branch, pr)| (branch.clone(), pr.clone()))
-        .collect()
-}
-
 fn adoption_parent_head(branch: &str, parent: &str) -> Result<String> {
     git::merge_base(branch, parent)
 }
 
+fn expand_ancestor_chains(prs: &mut HashMap<String, github::PrInfo>, remote: &str, trunk: &str) {
+    expand_ancestor_chains_with(prs, trunk, |refs| github::get_pr_statuses_for(remote, refs));
+}
+
+fn expand_ancestor_chains_with<F>(
+    prs: &mut HashMap<String, github::PrInfo>,
+    trunk: &str,
+    mut fetch: F,
+) where
+    F: FnMut(&[&str]) -> HashMap<String, github::PrInfo>,
+{
+    // `tried` distinguishes "missing because we haven't fetched yet" from
+    // "missing because no PR exists upstream"; without it we'd loop forever
+    // re-fetching the same broken-chain base.
+    let mut tried: HashSet<String> = HashSet::new();
+    loop {
+        let missing: Vec<String> = prs
+            .values()
+            .map(|pr| pr.base.clone())
+            .filter(|base| base != trunk && !prs.contains_key(base) && !tried.contains(base))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        if missing.is_empty() {
+            break;
+        }
+        for branch in &missing {
+            tried.insert(branch.clone());
+        }
+        let refs: Vec<&str> = missing.iter().map(String::as_str).collect();
+        let new_prs = fetch(&refs);
+        if new_prs.is_empty() {
+            break;
+        }
+        prs.extend(new_prs);
+    }
+}
+
+fn orphan_local_prs<'a>(prs: &'a HashMap<String, github::PrInfo>, trunk: &str) -> Vec<&'a String> {
+    let mut orphans: Vec<&String> = prs
+        .iter()
+        .filter(|(_, pr)| pr.base != trunk && !prs.contains_key(&pr.base))
+        .map(|(branch, _)| branch)
+        .collect();
+    orphans.sort();
+    orphans
+}
+
+fn fetch_local_prs(remote: &str) -> Result<HashMap<String, github::PrInfo>> {
+    let local = git::branch_list().unwrap_or_default();
+    if local.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let refs: Vec<&str> = local.iter().map(String::as_str).collect();
+    let mut prs = github::get_pr_statuses_for(remote, &refs);
+    prs.retain(|_, pr| pr.state == "OPEN" && !pr.merged);
+    Ok(prs)
+}
+
+fn fetch_prs_by_branches(
+    remote: &str,
+    trunk: &str,
+    branches: &[String],
+) -> Result<HashMap<String, github::PrInfo>> {
+    let refs: Vec<&str> = branches.iter().map(String::as_str).collect();
+    let mut prs = github::get_pr_statuses_for(remote, &refs);
+    expand_ancestor_chains(&mut prs, remote, trunk);
+    prs.retain(|_, pr| pr.state == "OPEN" && !pr.merged);
+    Ok(prs)
+}
+
+fn fetch_prs_by_number(
+    remote: &str,
+    trunk: &str,
+    number: u64,
+) -> Result<(String, HashMap<String, github::PrInfo>)> {
+    let (head, pr) = github::get_pr_by_number(remote, number).ok_or_else(|| {
+        anyhow::anyhow!("PR #{number} not found — make sure it exists and is accessible")
+    })?;
+    let title = pr.title.clone();
+    let mut prs = HashMap::new();
+    prs.insert(head, pr);
+    expand_ancestor_chains(&mut prs, remote, trunk);
+    prs.retain(|_, p| p.state == "OPEN" && !p.merged);
+    Ok((title, prs))
+}
+
 pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
     let mut state = StackState::load().or_else(|_| {
-        // If ez isn't initialized, try to auto-detect trunk and init.
         let trunk = git::default_branch().unwrap_or_else(|_| "main".to_string());
         let state = StackState::new(trunk.clone());
         state.save()?;
@@ -156,63 +201,38 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
         Ok::<StackState, anyhow::Error>(state)
     })?;
 
-    // Check gh authentication.
     if !github::is_gh_authenticated() {
         bail!(EzError::GhError(
             "not authenticated — run `gh auth login` first".to_string()
         ));
     }
 
-    // Fetch all open PRs.
-    let sp = ui::spinner("Fetching PR graph from GitHub...");
-    let all_prs = github::get_all_pr_statuses();
-    sp.finish_and_clear();
-
-    if all_prs.is_empty() {
-        ui::info("No PRs found in this repository");
-        return Ok(());
-    }
-
-    // If --pr is specified, find the specific PR and its chain.
     let candidates = if let Some(pr_number) = pr {
-        // Find the PR by number and clone the title for error messages.
-        let target_title = all_prs
-            .values()
-            .find(|p| p.number == pr_number)
-            .map(|p| p.title.clone())
-            .ok_or_else(|| {
-                anyhow::anyhow!("PR #{pr_number} not found — make sure it exists and is open")
-            })?;
+        let sp = ui::spinner(&format!("Fetching PR #{pr_number} and its chain..."));
+        let (title, prs) = fetch_prs_by_number(&state.remote, &state.trunk, pr_number)?;
+        sp.finish_and_clear();
 
-        let target_branch = all_prs
-            .iter()
-            .find(|(_, p)| p.number == pr_number)
-            .map(|(b, _)| b.clone())
-            .unwrap();
-
-        // Build the full chain from this PR down to trunk.
-        let filtered = filter_prs_for_requested_branches(&all_prs, &state.trunk, &[target_branch]);
-
-        let graph = build_adopt_graph(&state.trunk, &filtered);
+        let graph = build_adopt_graph(&state.trunk, &prs);
         if graph.is_empty() {
             bail!(
                 "PR #{pr_number} (`{}`) does not lead back to trunk `{}`",
-                target_title,
+                title,
                 state.trunk
             );
         }
         graph
     } else if !specific_branches.is_empty() {
-        let filtered = filter_prs_for_requested_branches(&all_prs, &state.trunk, specific_branches);
+        let sp = ui::spinner("Fetching PRs for named branches...");
+        let prs = fetch_prs_by_branches(&state.remote, &state.trunk, specific_branches)?;
+        sp.finish_and_clear();
 
-        // Check for branches that have no PRs.
         for branch in specific_branches {
-            if !all_prs.contains_key(branch.as_str()) {
+            if !prs.contains_key(branch.as_str()) {
                 ui::warn(&format!("Branch `{branch}` has no open PR — skipping"));
             }
         }
 
-        let graph = build_adopt_graph(&state.trunk, &filtered);
+        let graph = build_adopt_graph(&state.trunk, &prs);
         if graph.is_empty() {
             bail!(
                 "None of the specified branches have open PRs rooted on `{}`",
@@ -221,16 +241,42 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
         }
         graph
     } else {
-        // Adopt all open PRs rooted on trunk.
-        let graph = build_adopt_graph(&state.trunk, &all_prs);
+        // Default scopes strictly to local branches. Local PRs whose base
+        // isn't another local PR (or trunk) are warned and dropped — we
+        // deliberately don't auto-expand to the remote chain, since that
+        // would silently re-introduce per-PR network cost in large repos.
+        let sp = ui::spinner("Fetching PRs for local branches...");
+        let prs = fetch_local_prs(&state.remote)?;
+        sp.finish_and_clear();
+
+        if prs.is_empty() {
+            ui::info("No open PRs found for local branches");
+            ui::hint(
+                "Run `ez adopt --pr <number>` to adopt a specific PR, or `ez track` to track a branch without a PR",
+            );
+            return Ok(());
+        }
+
+        for orphan in orphan_local_prs(&prs, &state.trunk) {
+            let pr_info = &prs[orphan];
+            ui::warn(&format!(
+                "`{orphan}` (#{}) bases on `{}` which has no local PR — skipping",
+                pr_info.number, pr_info.base
+            ));
+            ui::hint(&format!(
+                "Run `ez adopt --pr {}` to walk the remote chain for this branch",
+                pr_info.number
+            ));
+        }
+
+        let graph = build_adopt_graph(&state.trunk, &prs);
         if graph.is_empty() {
-            ui::info("No open PRs found that are rooted on trunk");
+            ui::info("No open PRs found for local branches that root on trunk");
             return Ok(());
         }
         graph
     };
 
-    // Report what we found.
     ui::header(&format!("Found {} branch(es) to adopt", candidates.len()));
     for c in &candidates {
         let draft = if c.is_draft { " [draft]" } else { "" };
@@ -245,13 +291,11 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
         ));
     }
 
-    // Adopt each candidate.
     let mut adopted = 0;
     let mut skipped = 0;
 
     for candidate in &candidates {
         if state.is_managed(&candidate.branch) {
-            // Already tracked — just update PR number if missing.
             if let Ok(meta) = state.get_branch_mut(&candidate.branch) {
                 if meta.pr_number.is_none() {
                     meta.pr_number = Some(candidate.pr_number);
@@ -265,14 +309,12 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
             continue;
         }
 
-        // Ensure the local branch exists. Fetch from remote if needed.
         if !git::branch_exists(&candidate.branch) {
             ui::info(&format!("Fetching `{}` from remote...", candidate.branch));
             let pr_ref = git::fetch_pr_head(&state.remote, candidate.pr_number)?;
             git::create_branch_at(&candidate.branch, &pr_ref)?;
         }
 
-        // Record the exact parent commit this branch is based on.
         let parent = &candidate.base;
         let parent_head = match adoption_parent_head(&candidate.branch, parent) {
             Ok(parent_head) => parent_head,
@@ -295,10 +337,7 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
             continue;
         }
 
-        // Add to stack state.
         state.add_branch(&candidate.branch, parent, &parent_head, None, None);
-
-        // Set the PR number.
         if let Ok(meta) = state.get_branch_mut(&candidate.branch) {
             meta.pr_number = Some(candidate.pr_number);
         }
@@ -314,7 +353,6 @@ pub fn run(pr: Option<u64>, specific_branches: &[String]) -> Result<()> {
 
     state.save()?;
 
-    // Summary.
     if adopted == 0 && skipped > 0 {
         ui::info(&format!("All {skipped} branch(es) were already tracked"));
     } else {
@@ -532,20 +570,94 @@ mod tests {
     }
 
     #[test]
-    fn requested_branch_chain_includes_ancestors() {
+    fn expand_ancestor_chains_fetches_missing_parents_until_trunk() {
+        let mut prs = HashMap::new();
+        let (k, v) = make_pr("feat/c", "feat/b", 3);
+        prs.insert(k, v);
+
+        let mut remote: HashMap<String, github::PrInfo> = HashMap::new();
+        let (k, v) = make_pr("feat/a", "main", 1);
+        remote.insert(k, v);
+        let (k, v) = make_pr("feat/b", "feat/a", 2);
+        remote.insert(k, v);
+
+        let mut calls: Vec<Vec<String>> = Vec::new();
+        expand_ancestor_chains_with(&mut prs, "main", |refs| {
+            calls.push(refs.iter().map(|s| (*s).to_string()).collect());
+            let mut out = HashMap::new();
+            for r in refs {
+                if let Some(pr) = remote.get(*r) {
+                    out.insert((*r).to_string(), pr.clone());
+                }
+            }
+            out
+        });
+
+        assert!(prs.contains_key("feat/a"));
+        assert!(prs.contains_key("feat/b"));
+        assert!(prs.contains_key("feat/c"));
+        assert_eq!(calls.len(), 2, "expected one batch per stack level");
+    }
+
+    #[test]
+    fn expand_ancestor_chains_terminates_when_base_has_no_pr() {
+        let mut prs = HashMap::new();
+        let (k, v) = make_pr("feat/c", "feat/b", 3);
+        prs.insert(k, v);
+
+        let mut call_count = 0usize;
+        expand_ancestor_chains_with(&mut prs, "main", |_refs| {
+            call_count += 1;
+            HashMap::new()
+        });
+
+        assert_eq!(call_count, 1);
+        assert_eq!(prs.len(), 1);
+        assert!(prs.contains_key("feat/c"));
+    }
+
+    #[test]
+    fn expand_ancestor_chains_does_nothing_when_all_bases_are_trunk() {
+        let mut prs = HashMap::new();
+        let (k, v) = make_pr("feat/a", "main", 1);
+        prs.insert(k, v);
+
+        let mut call_count = 0usize;
+        expand_ancestor_chains_with(&mut prs, "main", |_refs| {
+            call_count += 1;
+            HashMap::new()
+        });
+
+        assert_eq!(call_count, 0);
+    }
+
+    #[test]
+    fn orphan_local_prs_flags_branches_whose_base_is_neither_trunk_nor_local() {
         let mut prs = HashMap::new();
         let (k, v) = make_pr("feat/a", "main", 1);
         prs.insert(k, v);
         let (k, v) = make_pr("feat/b", "feat/a", 2);
         prs.insert(k, v);
-        let (k, v) = make_pr("feat/c", "feat/b", 3);
+        let (k, v) = make_pr("feat/c", "feat/missing", 3);
         prs.insert(k, v);
 
-        let filtered = filter_prs_for_requested_branches(&prs, "main", &["feat/c".to_string()]);
-        let graph = build_adopt_graph("main", &filtered);
-        let names: Vec<&str> = graph.iter().map(|c| c.branch.as_str()).collect();
+        let orphans = orphan_local_prs(&prs, "main");
+        assert_eq!(orphans, vec![&"feat/c".to_string()]);
+    }
 
-        assert_eq!(names, vec!["feat/a", "feat/b", "feat/c"]);
+    #[test]
+    fn orphan_local_prs_returns_sorted_for_stable_warning_order() {
+        let mut prs = HashMap::new();
+        let (k, v) = make_pr("feat/z", "missing-x", 3);
+        prs.insert(k, v);
+        let (k, v) = make_pr("feat/a", "missing-y", 1);
+        prs.insert(k, v);
+        let (k, v) = make_pr("feat/m", "missing-z", 2);
+        prs.insert(k, v);
+
+        let orphans = orphan_local_prs(&prs, "main");
+        let names: Vec<&str> = orphans.iter().map(|s| s.as_str()).collect();
+        assert_eq!(names, vec!["feat/a", "feat/m", "feat/z"]);
     }
 
     #[test]
