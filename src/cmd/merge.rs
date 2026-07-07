@@ -17,6 +17,7 @@ struct MergeOutcome {
     branch: String,
     pr_number: u64,
     restacked: usize,
+    pushed: Vec<String>,
 }
 
 fn merge_targets(state: &StackState, current: &str, stack: bool) -> Result<Vec<MergeTarget>> {
@@ -93,6 +94,7 @@ fn merge_branch(
     let order = state.topo_order();
     let current_root = git::repo_root()?;
     let mut restacked = 0;
+    let mut restacked_for_push = Vec::<String>::new();
 
     for branch_name in &order {
         let meta = state.get_branch(branch_name)?;
@@ -109,13 +111,13 @@ fn merge_branch(
             continue;
         }
 
-        if let Ok(Some(_wt_path)) = git::branch_checked_out_elsewhere(branch_name, &current_root) {
-            ui::warn(&format!("Skipped `{branch_name}` (in worktree)"));
-            continue;
-        }
-
         let sp = ui::spinner(&format!("Restacking `{branch_name}` onto `{parent}`..."));
-        let outcome = git::rebase_onto(&current_parent_tip, &stored_parent_head, branch_name)?;
+        let outcome = git::rebase_onto_for_branch(
+            &current_parent_tip,
+            &stored_parent_head,
+            branch_name,
+            &current_root,
+        )?;
         sp.finish_and_clear();
 
         match outcome {
@@ -123,6 +125,7 @@ fn merge_branch(
                 let meta = state.get_branch_mut(branch_name)?;
                 meta.parent_head = current_parent_tip;
                 restacked += 1;
+                restacked_for_push.push(branch_name.clone());
                 ui::info(&format!("Restacked `{branch_name}` onto `{parent}`"));
             }
             git::RebaseOutcome::Conflict(conflict) => {
@@ -133,12 +136,23 @@ fn merge_branch(
         }
     }
 
+    if !restacked_for_push.is_empty() {
+        for branch_name in &restacked_for_push {
+            let sp = ui::spinner(&format!("Pushing restacked `{branch_name}` after merge..."));
+            git::fetch_branch(&remote, branch_name)?;
+            git::push(&remote, branch_name, true)?;
+            sp.finish_and_clear();
+            ui::info(&format!("Pushed `{branch_name}`"));
+        }
+    }
+
     state.save()?;
 
     Ok(MergeOutcome {
         branch: branch.to_string(),
         pr_number,
         restacked,
+        pushed: restacked_for_push,
     })
 }
 
@@ -189,21 +203,30 @@ pub fn run(method: &str, yes: bool, stack: bool) -> Result<()> {
     }
 
     let mut total_restacked = 0;
+    let mut total_pushed = 0usize;
 
     for target in &targets {
         let outcome = merge_branch(&mut state, &target.branch, target.pr_number, method)?;
         total_restacked += outcome.restacked;
+        total_pushed += outcome.pushed.len();
         ui::receipt(&serde_json::json!({
             "cmd": "merge",
             "branch": outcome.branch,
             "pr_number": outcome.pr_number,
             "method": method,
             "stack": stack,
+            "restacked": outcome.restacked,
+            "pushed_branches": outcome.pushed,
         }));
     }
 
     if total_restacked > 0 {
         ui::info(&format!("Restacked {total_restacked} branch(es)"));
+    }
+    if total_pushed > 0 {
+        ui::info(&format!(
+            "Updated {total_pushed} remote branch(es) after restack"
+        ));
     }
 
     if stack {

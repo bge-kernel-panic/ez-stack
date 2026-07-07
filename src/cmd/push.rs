@@ -43,6 +43,9 @@ fn stack_ancestors(
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     draft: bool,
+    no_draft: bool,
+    no_pr: bool,
+    force_pr: bool,
     title: Option<&str>,
     body: Option<&str>,
     body_file: Option<&str>,
@@ -53,7 +56,7 @@ pub fn run(
     commit_message: Option<&str>,
 ) -> Result<()> {
     if stack {
-        return crate::cmd::submit::run(draft, title, body, body_file);
+        return crate::cmd::submit::run(draft, no_draft, title, body, body_file);
     }
 
     if let Some(root) = git::current_linked_worktree_root()? {
@@ -118,6 +121,18 @@ pub fn run(
 
     let remote = &state.remote.clone();
 
+    // Resolve PR creation: --pr > --no-pr > config > false
+    let skip_pr = resolve_no_pr(force_pr, no_pr, state.no_pr);
+
+    // Resolve draft: --draft/--no-draft flags > config > false
+    let effective_draft = if no_draft {
+        false
+    } else if draft {
+        true
+    } else {
+        state.draft.unwrap_or(false)
+    };
+
     let resolved_body: Option<String> = match body_file {
         Some(path) => Some(github::body_from_file(path)?),
         None => body.map(|s| s.to_string()),
@@ -136,6 +151,21 @@ pub fn run(
     sp.finish_and_clear();
     ui::info(&format!("Pushed `{current}`"));
 
+    if skip_pr {
+        state.save()?;
+        ui::success(&format!("Pushed `{current}` (no PR)"));
+        ui::receipt(&serde_json::json!({
+            "cmd": "push",
+            "branch": current,
+            "no_pr": true,
+            "scope_defined": commit_scope_defined,
+            "scope_mode": commit_scope_mode,
+            "out_of_scope_count": commit_out_of_scope_files.len(),
+            "out_of_scope_files": commit_out_of_scope_files,
+        }));
+        return Ok(());
+    }
+
     let body_explicitly_set = body.is_some() || body_file.is_some();
 
     // Create or update the PR.
@@ -149,7 +179,7 @@ pub fn run(
         &mut state,
         &current,
         &parent,
-        draft,
+        effective_draft,
         title,
         resolved_body.as_deref(),
         body_explicitly_set,
@@ -173,6 +203,14 @@ pub fn run(
     }));
 
     Ok(())
+}
+
+fn resolve_no_pr(force_pr: bool, no_pr: bool, config_no_pr: Option<bool>) -> bool {
+    if force_pr {
+        false
+    } else {
+        no_pr || config_no_pr.unwrap_or(false)
+    }
 }
 
 /// Push-or-update logic shared with the `submit` command.
@@ -308,5 +346,117 @@ mod tests {
         let ancestors = stack_ancestors(&state, "feat/b", "");
         assert_eq!(ancestors.len(), 1);
         assert!(ancestors[0].pr_url.is_none());
+    }
+
+    #[test]
+    fn stack_ancestors_single_branch_returns_empty() {
+        let mut state = StackState::new("main".to_string());
+        state.add_branch("feat/a", "main", "aaa", None, None);
+
+        let ancestors = stack_ancestors(&state, "feat/a", "org/repo");
+        assert!(
+            ancestors.is_empty(),
+            "branch directly on trunk has no stack ancestors"
+        );
+    }
+
+    #[test]
+    fn draft_resolution_no_draft_flag_wins() {
+        // --no-draft should override both --draft and config
+        let no_draft = true;
+        let draft = true;
+        let config_draft = Some(true);
+
+        let effective = if no_draft {
+            false
+        } else if draft {
+            true
+        } else {
+            config_draft.unwrap_or(false)
+        };
+        assert!(!effective, "--no-draft should override everything");
+    }
+
+    #[test]
+    fn draft_resolution_flag_overrides_config() {
+        // --draft flag should override config=false
+        let no_draft = false;
+        let draft = true;
+        let config_draft = Some(false);
+
+        let effective = if no_draft {
+            false
+        } else if draft {
+            true
+        } else {
+            config_draft.unwrap_or(false)
+        };
+        assert!(effective, "--draft flag should override config");
+    }
+
+    #[test]
+    fn draft_resolution_config_used_when_no_flags() {
+        // No flags, config=true should win
+        let no_draft = false;
+        let draft = false;
+        let config_draft = Some(true);
+
+        let effective = if no_draft {
+            false
+        } else if draft {
+            true
+        } else {
+            config_draft.unwrap_or(false)
+        };
+        assert!(effective, "config should be used when no flags");
+    }
+
+    #[test]
+    fn draft_resolution_defaults_to_false() {
+        // No flags, no config → false
+        let no_draft = false;
+        let draft = false;
+        let config_draft: Option<bool> = None;
+
+        let effective = if no_draft {
+            false
+        } else if draft {
+            true
+        } else {
+            config_draft.unwrap_or(false)
+        };
+        assert!(!effective, "default should be false");
+    }
+
+    #[test]
+    fn no_pr_resolution_flag_overrides_config() {
+        assert!(
+            resolve_no_pr(false, true, Some(false)),
+            "--no-pr flag should override config"
+        );
+    }
+
+    #[test]
+    fn no_pr_resolution_config_used_when_no_flag() {
+        assert!(
+            resolve_no_pr(false, false, Some(true)),
+            "config should be used when no flag"
+        );
+    }
+
+    #[test]
+    fn no_pr_resolution_defaults_to_false() {
+        assert!(
+            !resolve_no_pr(false, false, None),
+            "default should be false"
+        );
+    }
+
+    #[test]
+    fn no_pr_resolution_pr_flag_overrides_config() {
+        assert!(
+            !resolve_no_pr(true, false, Some(true)),
+            "--pr should create/update a PR even when config no_pr is true"
+        );
     }
 }

@@ -143,7 +143,7 @@ Use `--hook <name>` for project-specific hooks, or `--hook` alone to list availa
 | `ez adopt [name]` | Register an existing git branch into the stack. Defaults to current branch. `--parent <branch>` to set parent. |
 | `ez list` | Dashboard for all local branches: PRs, CI, age, ports, and working tree state. `--json` for machine output. |
 | `ez delete [name]` | Delete branch + worktree. Auto-detects worktrees and best-effort stops listeners on the branch dev port. `--yes` for agents. |
-| `ez push` | Push + create/update PR. `-am "msg"` to stage+commit+push in one step. |
+| `ez push` | Push + create/update PR. `-am "msg"` to stage+commit+push in one step. `--no-pr` skips PR updates, `--pr` overrides `no_pr` config. |
 
 ### Committing
 
@@ -217,8 +217,10 @@ Intended workflow:
 
 | Command | Description |
 |---------|-------------|
+| `ez init --yes` | Initialize ez and accept recommended non-interactive defaults |
 | `ez setup --yes` | Configure shell integration |
 | `ez setup --no-worktree` | Set `ez create` to default to branch-only (no worktree) |
+| `ez config list/get/set` | View or update repo settings such as `default_from`, `draft`, `no_pr`, and `rerere` |
 | `ez skill install` | Install the ez-workflow skill for AI agents |
 | `ez update` | Update to latest version |
 

@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::cmd::restack_children;
+use crate::cmd::restack;
 use crate::error::EzError;
 use crate::git;
 use crate::stack::StackState;
@@ -34,7 +34,7 @@ pub fn run(message: Option<&str>, all: bool, verbose: bool) -> Result<()> {
     let before = git::rev_parse("HEAD")?;
 
     if let Some(msg) = message {
-        git::commit_amend(msg)?;
+        git::commit_amend(Some(msg))?;
     } else if !git::commit_amend_interactive(verbose)? {
         return Ok(());
     }
@@ -63,7 +63,17 @@ pub fn run(message: Option<&str>, all: bool, verbose: bool) -> Result<()> {
         "deletions": del,
     }));
 
-    restack_children::restack_children(&mut state, &current, &after, "amend")?;
+    // Auto-restack the whole subtree below the amended branch — not just direct
+    // children, which would leave grandchildren detached from the stack.
+    let current_root = git::repo_root()?;
+    let restacked =
+        restack::cascade_restack(&mut state, &current, &current_root, &current, "amend")?;
 
+    // Return to the original branch after restacking (only if we may have moved).
+    if restacked > 0 {
+        git::checkout(&current)?;
+    }
+
+    state.save()?;
     Ok(())
 }

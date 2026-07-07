@@ -1,4 +1,5 @@
 /target
+/.omx
 problems.md
 .opencode/
 .worktrees/

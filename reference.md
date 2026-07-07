@@ -60,6 +60,9 @@ Preferred workflow:
 
 | Intent | Command |
 |--------|---------|
+| Push current branch and create/update PR | `ez push` |
+| Push without creating/updating PR | `ez push --no-pr` |
+| Force PR creation when `no_pr` config is true | `ez push --pr` |
 | Print PR URL to stdout | `ez pr-link` |
 | Edit PR title/body | `ez pr-edit --title "..." --body "..."` |
 | Mark PR as draft / ready | `ez draft` / `ez ready` |
@@ -90,10 +93,14 @@ Preferred workflow:
 
 | Intent | Command |
 |--------|---------|
+| Initialize ez non-interactively | `ez init --yes` |
 | Install skill in repo | `ez skill install` |
 | Shell integration | `ez setup --yes` |
 | Default to no-worktree on create | `ez setup --no-worktree` |
 | Default to worktree on create | `ez setup --worktree` |
+| List repo config | `ez config list` |
+| Read repo config | `ez config get default_from` |
+| Update repo config | `ez config set draft true` |
 | Update ez | `ez update` |
 | Check for updates | `ez update --check` |
 

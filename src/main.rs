@@ -17,7 +17,7 @@ mod ui;
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands, ScopeCommands, SkillCommands, WorktreeCommands};
+use cli::{Cli, Commands, ConfigCommands, ScopeCommands, SkillCommands, WorktreeCommands};
 use std::time::Instant;
 
 fn exit_code_for(e: &anyhow::Error) -> i32 {
@@ -112,8 +112,8 @@ fn handle_clap_error(e: clap::Error, start: Instant) {
 
 fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Commands::Adopt { name, parent } => cmd::adopt::run(name.as_deref(), parent.as_deref()),
-        Commands::Init { trunk } => cmd::init::run(trunk),
+        Commands::Init { trunk, yes } => cmd::init::run(trunk, yes),
+        Commands::Adopt { pr, branches } => cmd::adopt::run(pr, &branches),
         Commands::Create {
             name,
             message,
@@ -169,6 +169,9 @@ fn run(cli: Cli) -> Result<()> {
         } => cmd::amend::run(message.as_deref(), all, verbose),
         Commands::Push {
             draft,
+            no_draft,
+            no_pr,
+            pr,
             title,
             body,
             body_file,
@@ -179,6 +182,9 @@ fn run(cli: Cli) -> Result<()> {
             message,
         } => cmd::push::run(
             draft,
+            no_draft,
+            no_pr,
+            pr,
             title.as_deref(),
             body.as_deref(),
             body_file.as_deref(),
@@ -190,11 +196,13 @@ fn run(cli: Cli) -> Result<()> {
         ),
         Commands::Submit {
             draft,
+            no_draft,
             title,
             body,
             body_file,
         } => cmd::submit::run(
             draft,
+            no_draft,
             title.as_deref(),
             body.as_deref(),
             body_file.as_deref(),
@@ -208,11 +216,13 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Up {
             worktree,
             no_worktree,
-        } => cmd::navigate::up(config::resolve_worktree(worktree, no_worktree)),
+            branch,
+        } => cmd::navigate::up(branch.as_deref(), config::resolve_worktree(worktree, no_worktree)),
         Commands::Down {
             worktree,
             no_worktree,
-        } => cmd::navigate::down(config::resolve_worktree(worktree, no_worktree)),
+            branch,
+        } => cmd::navigate::down(branch.as_deref(), config::resolve_worktree(worktree, no_worktree)),
         Commands::Top {
             worktree,
             no_worktree,
@@ -234,8 +244,9 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Status { json } => cmd::status::run(json),
         Commands::Diff { stat, name_only } => cmd::diff::run(stat, name_only),
         Commands::Parent => cmd::parent::run(),
+        Commands::Track { branch, parent } => cmd::track::run(branch, parent),
         Commands::Delete { branch, force, yes } => cmd::delete::run(branch.as_deref(), force, yes),
-        Commands::Move { onto } => cmd::move_branch::run(&onto),
+        Commands::Move { onto } => cmd::move_branch::run(onto.as_deref()),
         Commands::Merge { method, yes, stack } => cmd::merge::run(&method, yes, stack),
         Commands::PrEdit {
             title,
@@ -272,6 +283,11 @@ fn run(cli: Cli) -> Result<()> {
             SkillCommands::Uninstall => cmd::skill::uninstall(),
         },
         Commands::ShellInit => cmd::shell_init::run(),
+        Commands::Config(args) => match args.command {
+            ConfigCommands::List => cmd::config::list(),
+            ConfigCommands::Get { key } => cmd::config::get(&key),
+            ConfigCommands::Set { key, value } => cmd::config::set(&key, &value),
+        },
         Commands::Worktree(args) => match args.command {
             WorktreeCommands::Create { name, from } => {
                 cmd::worktree::create(&name, from.as_deref())

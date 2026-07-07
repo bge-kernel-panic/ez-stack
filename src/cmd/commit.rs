@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::cmd::mutation_guard;
 use crate::cmd::mutation_guard::{CommitMethod, StageMode};
-use crate::cmd::restack_children;
+use crate::cmd::restack;
 use crate::git;
 use crate::stack::StackState;
 use crate::ui;
@@ -70,7 +70,22 @@ pub fn run(
         "out_of_scope_files": outcome.scope.out_of_scope_files,
     }));
 
-    restack_children::restack_children(&mut state, &current, &after, "commit")?;
+    // Auto-restack the whole subtree so every descendant stays on top of the new
+    // HEAD — not just direct children (which would leave grandchildren detached).
+    let current_root = git::repo_root()?;
+    let restacked_count =
+        restack::cascade_restack(&mut state, &current, &current_root, &current, "commit")?;
+
+    // Restacking may have left us on a descendant branch; return to the original.
+    if restacked_count > 0 {
+        git::checkout(&current)?;
+    }
+
+    state.save()?;
+
+    if restacked_count > 0 {
+        ui::info(&format!("Restacked {restacked_count} branch(es)"));
+    }
 
     Ok(())
 }
