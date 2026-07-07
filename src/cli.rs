@@ -994,12 +994,12 @@ mod tests {
                 Commands::Up {
                     worktree,
                     no_worktree,
-		    branch: _,
+                    branch: _,
                 }
                 | Commands::Down {
                     worktree,
                     no_worktree,
-		    branch: _,
+                    branch: _,
                 }
                 | Commands::Top {
                     worktree,
@@ -1072,19 +1072,31 @@ mod tests {
     fn parses_up_down_optional_branch() {
         let up = Cli::try_parse_from(["ez", "up", "feat/child"]).expect("parse up");
         match up.command {
-            Commands::Up { worktree: _, no_worktree: _, branch } => assert_eq!(branch.as_deref(), Some("feat/child")),
+            Commands::Up {
+                worktree: _,
+                no_worktree: _,
+                branch,
+            } => assert_eq!(branch.as_deref(), Some("feat/child")),
             _ => panic!("expected up"),
         }
 
         let up_bare = Cli::try_parse_from(["ez", "up"]).expect("parse up bare");
         match up_bare.command {
-            Commands::Up { worktree: _, no_worktree: _, branch } => assert!(branch.is_none()),
+            Commands::Up {
+                worktree: _,
+                no_worktree: _,
+                branch,
+            } => assert!(branch.is_none()),
             _ => panic!("expected up"),
         }
 
         let down = Cli::try_parse_from(["ez", "down", "main"]).expect("parse down");
         match down.command {
-            Commands::Down { worktree: _, no_worktree: _, branch } => assert_eq!(branch.as_deref(), Some("main")),
+            Commands::Down {
+                worktree: _,
+                no_worktree: _,
+                branch,
+            } => assert_eq!(branch.as_deref(), Some("main")),
             _ => panic!("expected down"),
         }
     }

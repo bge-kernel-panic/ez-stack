@@ -217,12 +217,18 @@ fn run(cli: Cli) -> Result<()> {
             worktree,
             no_worktree,
             branch,
-        } => cmd::navigate::up(branch.as_deref(), config::resolve_worktree(worktree, no_worktree)),
+        } => cmd::navigate::up(
+            branch.as_deref(),
+            config::resolve_worktree(worktree, no_worktree),
+        ),
         Commands::Down {
             worktree,
             no_worktree,
             branch,
-        } => cmd::navigate::down(branch.as_deref(), config::resolve_worktree(worktree, no_worktree)),
+        } => cmd::navigate::down(
+            branch.as_deref(),
+            config::resolve_worktree(worktree, no_worktree),
+        ),
         Commands::Top {
             worktree,
             no_worktree,
